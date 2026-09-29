@@ -241,6 +241,11 @@
             "type": "string"
           },
           "uniqueItems": true
+        },
+        "gateway_key_env": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]*$",
+          "description": "The environment variable holding the pool's API key, for the gateway (§8)"
         }
       }
     },
@@ -386,6 +391,11 @@
               "minimum": 0
             }
           }
+        },
+        "gateway_model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The provider-prefixed model the gateway calls, e.g. anthropic/claude-opus-5-5 (§8)"
         }
       }
     }
