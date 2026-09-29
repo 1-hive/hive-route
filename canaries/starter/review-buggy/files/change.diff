@@ -1,0 +1,14 @@
+--- a/before.py
++++ b/before.py
+@@ -1,8 +1,10 @@
+ def bucket(age):
++    if not isinstance(age, int) or isinstance(age, bool):
++        raise TypeError("age must be an integer")
+     if age < 0:
+         raise ValueError("negative age")
+     if age <= 12:
+         return "child"
+-    if age <= 64:
++    if age < 64:
+         return "adult"
+     return "senior"

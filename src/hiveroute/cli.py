@@ -6,14 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import __version__
 from . import log as routelog
+from .canary import qualify, set_lesson
 from .canonical import format_time, parse_time
 from .decide import decide
 from .errors import RouteError
+from .observe import CODEX_ROOT, find_manifests, observe
 from .table import load_table
 from .usage import collect, load_sources
 
@@ -67,6 +69,36 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("sources")
     s.add_argument("--as-of", help="the state's time (default: now)")
     s.add_argument("--notes", action="store_true", help="print where each pool's usage came from")
+
+    mf = sub.add_parser("manifest", help="print the attempt manifest for a routed decision")
+    mf.add_argument("decision", help="decision JSON file, or - for stdin")
+    mf.add_argument("--cwd", required=True, help="the folder the harness runs in")
+    mf.add_argument("--output", required=True, help="the file the harness's output goes to")
+
+    o = sub.add_parser("observe", help="check attempts' reported models for drift (§3)")
+    o.add_argument("log")
+    o.add_argument("manifests", nargs="+", help="attempt manifest files or glob patterns")
+    o.add_argument("--sources", help="sources file naming the qualifications file to update")
+    o.add_argument("--codex-root", default=CODEX_ROOT)
+    o.add_argument("--since-days", type=float, default=8,
+                   help="only manifests written in this many days (default 8)")
+
+    ca = sub.add_parser("canary", help="qualify routes on a canary suite (§3)")
+    csub = ca.add_subparsers(dest="canary_cmd", required=True)
+    cr = csub.add_parser("run", help="run a suite on one route and record the result")
+    cr.add_argument("table")
+    cr.add_argument("route")
+    cr.add_argument("--suite", required=True)
+    cr.add_argument("--sources", required=True, help="harness commands and qualifications file")
+    cr.add_argument("--log", required=True)
+    cr.add_argument("--case", action="append", help="run only this case (repeatable)")
+    cr.add_argument("--lesson", help="the lesson to record (default: a summary of the results)")
+    cr.add_argument("--codex-root", default=CODEX_ROOT)
+    cl = csub.add_parser("lesson", help="record an operator's lesson for a route")
+    cl.add_argument("route")
+    cl.add_argument("lesson")
+    cl.add_argument("--sources", required=True)
+    cl.add_argument("--log", required=True)
 
     r = sub.add_parser("replay", help="recompute every decision in a log")
     r.add_argument("log")
@@ -123,6 +155,41 @@ def _run(args: argparse.Namespace) -> int:
         if args.notes:
             print(json.dumps(notes, indent=2), file=sys.stderr)
         return 0
+
+    if args.cmd == "manifest":
+        d = _read_json(args.decision)
+        if d.get("decision") != "route":
+            raise RouteError("INPUT_INVALID", "a manifest is only for a routed decision")
+        print(json.dumps({
+            "format": "hive-route.attempt/1", "attempt": d["attempt"], "task": d["task"],
+            "route_id": d["route_id"], "route_pin": d["route_pin"], "model": d["model"],
+            "effort": d.get("effort"), "harness": d["harness"], "cwd": args.cwd,
+            "output": args.output, "started_at": format_time(datetime.now(UTC))}, indent=2))
+        return 0
+
+    if args.cmd == "observe":
+        quals = load_sources(args.sources).get("qualifications") if args.sources else None
+        since = datetime.now(UTC) - timedelta(days=args.since_days)
+        events = observe(find_manifests(args.manifests, since), args.log, quals, args.codex_root)
+        for ev in events:
+            d = ev["data"]
+            print(f"drift: {d['attempt']} on {d['route_id']}: pinned {d['pinned_model']}, "
+                  f"reported {', '.join(d['observed_models'])}")
+        return 4 if events else 0
+
+    if args.cmd == "canary":
+        sources = load_sources(args.sources)
+        if args.canary_cmd == "lesson":
+            e = set_lesson(args.route, args.lesson, sources, args.log)
+            print(f"{args.route}: {e['status']}; lesson recorded")
+            return 0
+        e = qualify(load_table(args.table), args.route, args.suite, sources, args.log,
+                    args.lesson, args.case, args.codex_root)
+        for r in e["results"]:
+            print(f"  {r['case']:<20} {'pass' if r['passed'] else 'FAIL'}  {r['seconds']:>6}s  "
+                  f"{', '.join(r['observed_models']) or '-'}")
+        print(f"{args.route}: {e['status']} ({e['passed']}/{e['cases']}); {e['lesson']}")
+        return 0 if e["status"] == "qualified" else 5
 
     if args.cmd == "replay":
         checked, problems = routelog.replay(args.log)

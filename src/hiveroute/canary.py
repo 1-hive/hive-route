@@ -1,0 +1,182 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Canaries (ROUTING.md §3): qualify a route by running it on a small fixed suite.
+
+A **suite** is a directory with ``suite.yaml`` (``schemas/suite-v1.schema.json``): cases,
+each with a prompt, starting files, and a **check** the model can't edit. The check
+runs from the suite directory against the case's work folder, so an attempt can't
+pass by changing its tests. The suite is pinned by the digest of its files.
+
+The **harnesses** section of a sources file says how to start each harness: an argv
+template with ``{model}``, ``{prompt}``, ``{cwd}``, the arguments to add for an effort,
+and whether the prompt goes on stdin.
+
+A route is ``qualified`` when every case passes (or the suite's ``pass_fraction``) and
+no reported model differs from the route's. The result is written to the
+qualifications file, which ``decide()`` reads through the state (§7), with a lesson, and
+logged as ``route.canary_recorded``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+
+import yaml
+
+from .canonical import digest, format_time
+from .errors import RouteError
+from .log import open_log
+from .observe import CODEX_ROOT, models_claude_stream, models_codex
+from .table import Table, schema_error
+
+
+def load_suite(path: str | Path) -> tuple[Path, dict, str]:
+    """The suite's directory, its definition, and its pin (a digest of every file)."""
+    root = Path(path)
+    if root.is_file():
+        root = root.parent
+    try:
+        suite = yaml.safe_load((root / "suite.yaml").read_text())
+    except (OSError, yaml.YAMLError) as e:
+        raise RouteError("SUITE_INVALID", f"{root}: {e}") from e
+    err = schema_error("suite-v1.schema.json", suite)
+    if err:
+        raise RouteError("SUITE_INVALID", err)
+    files = {}
+    for f in sorted(root.rglob("*")):
+        if f.is_file() and "__pycache__" not in f.parts:
+            files[str(f.relative_to(root))] = hashlib.sha256(f.read_bytes()).hexdigest()
+    return root, suite, digest(files)
+
+
+def _fill(argv: list[str], values: dict) -> list[str]:
+    return [a.format(**values) for a in argv]
+
+
+def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, base: Path,
+             codex_root: str = CODEX_ROOT) -> dict:
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    work = base / route_id / f"{case['id']}-{stamp}"
+    work.parent.mkdir(parents=True, exist_ok=True)
+    if "files" in case:
+        shutil.copytree(root / case["files"], work)
+    else:
+        work.mkdir()
+    prompt = (root / case["prompt"]).read_text()
+    values = {"model": route["model"], "prompt": prompt, "cwd": str(work),
+              "effort": route.get("effort") or ""}
+    argv = _fill(harness["argv"], values)
+    if route.get("effort"):
+        if "effort_args" not in harness:
+            raise RouteError("SOURCES_INVALID", f"harness for {route_id} can't set an effort")
+        argv += _fill(harness["effort_args"], values)
+    output = work.parent / f"{work.name}.out"
+    timeout = case.get("timeout_minutes", 15) * 60
+    started = datetime.now(UTC)
+    t0 = time.monotonic()
+    try:
+        with open(output, "w") as out:
+            r = subprocess.run(argv, cwd=work, stdout=out, stderr=subprocess.STDOUT,
+                               input=prompt if harness.get("stdin") else None,
+                               text=True, timeout=timeout,
+                               stdin=None if harness.get("stdin") else subprocess.DEVNULL)
+        harness_exit = r.returncode
+    except subprocess.TimeoutExpired:
+        harness_exit = "timeout"
+    except OSError as e:
+        harness_exit = f"could not start: {e}"
+    seconds = round(time.monotonic() - t0, 1)
+
+    check = _fill(case["check"], {"work": str(work), "case": str(root / case["id"]),
+                                  "suite": str(root)})
+    try:
+        c = subprocess.run(check, cwd=root, capture_output=True, text=True,
+                           timeout=case.get("check_timeout_seconds", 120),
+                           env={**os.environ, "CANARY_WORK": str(work)})
+        passed, tail = c.returncode == 0, (c.stdout + c.stderr)[-600:]
+    except (subprocess.TimeoutExpired, OSError) as e:
+        passed, tail = False, f"check did not run: {e}"
+
+    if route.get("harness") == "codex":
+        observed = models_codex(str(work), started, codex_root)
+    else:
+        observed = models_claude_stream(output)
+    return {"case": case["id"], "passed": passed, "harness_exit": harness_exit,
+            "seconds": seconds, "observed_models": sorted(observed), "check_tail": tail,
+            "work": str(work), "output": str(output)}
+
+
+def qualify(table: Table, route_id: str, suite_path: str, sources: dict, log: str,
+            lesson: str | None = None, cases: list[str] | None = None,
+            codex_root: str = CODEX_ROOT) -> dict:
+    """Run the suite on one route and record the result. Returns the qualification entry."""
+    if route_id not in table.routes:
+        raise RouteError("INPUT_INVALID", f"unknown route {route_id!r}")
+    route = table.routes[route_id]
+    harnesses = sources.get("harnesses", {})
+    if route.get("harness") not in harnesses:
+        raise RouteError("SOURCES_INVALID", f"no harness command for {route.get('harness')!r}")
+    if not sources.get("qualifications"):
+        raise RouteError("SOURCES_INVALID", "the sources file names no qualifications file")
+    root, suite, suite_pin = load_suite(suite_path)
+    chosen = [c for c in suite["cases"] if not cases or c["id"] in cases]
+    kinds = {c["kind"] for c in chosen}
+    base = Path(os.path.expanduser(sources.get("canary_workdir", "~/.cache/hive-route/canary")))
+
+    results = [run_case(route_id, route, c, root, harnesses[route["harness"]], base, codex_root)
+               for c in chosen]
+    npass = sum(r["passed"] for r in results)
+    drift = sorted({m for r in results for m in r["observed_models"] if m != route["model"]})
+    needed = suite.get("pass_fraction", 1.0) * len(results)
+    status = "qualified" if results and npass >= needed and not drift else "candidate"
+    failed = [r["case"] for r in results if not r["passed"]]
+    auto = (f"{npass}/{len(results)} cases passed"
+            + (f"; failed: {', '.join(failed)}" if failed else "")
+            + (f"; reported models differ from {route['model']}: {', '.join(drift)}"
+               if drift else ""))
+    entry = {"status": status, "route_pin": table.route_pin(route_id), "suite": suite["name"],
+             "suite_pin": suite_pin, "kinds": sorted(kinds), "at": format_time(datetime.now(UTC)),
+             "passed": npass, "cases": len(results), "lesson": lesson or auto,
+             "results": [{k: r[k] for k in ("case", "passed", "harness_exit", "seconds",
+                                             "observed_models", "work")} for r in results]}
+
+    qpath = Path(os.path.expanduser(sources["qualifications"]))
+    quals = json.loads(qpath.read_text()) if qpath.exists() else {}
+    quals[route_id] = entry
+    qpath.parent.mkdir(parents=True, exist_ok=True)
+    tmp = qpath.with_suffix(".tmp")
+    tmp.write_text(json.dumps(quals, indent=2) + "\n")
+    tmp.replace(qpath)
+
+    with open_log(log) as w:
+        w.ensure_table(table)
+        w.append("route.canary_recorded", {"route_id": route_id, **{
+            k: entry[k] for k in ("route_pin", "status", "suite", "suite_pin", "kinds", "passed",
+                                  "cases", "lesson", "results")}})
+    return entry
+
+
+def set_lesson(route_id: str, lesson: str, sources: dict, log: str) -> dict:
+    """Replace a route's lesson with an operator's, and log it."""
+    qpath = Path(os.path.expanduser(sources.get("qualifications", "")))
+    if not qpath.is_file():
+        raise RouteError("INPUT_INVALID", "no qualifications file")
+    quals = json.loads(qpath.read_text())
+    if route_id not in quals:
+        raise RouteError("INPUT_INVALID", f"{route_id!r} has no canary result")
+    quals[route_id]["lesson"] = lesson
+    tmp = qpath.with_suffix(".tmp")
+    tmp.write_text(json.dumps(quals, indent=2) + "\n")
+    tmp.replace(qpath)
+    e = quals[route_id]
+    with open_log(log) as w:
+        w.append("route.canary_recorded", {"route_id": route_id, **{
+            k: e[k] for k in ("route_pin", "status", "suite", "suite_pin", "kinds", "passed",
+                              "cases", "lesson", "results")}})
+    return e

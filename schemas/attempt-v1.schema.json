@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/attempt-v1.schema.json",
+  "title": "hive-route attempt manifest, format 1: written by a launcher when it starts a routed attempt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "attempt", "task", "route_id", "route_pin", "model", "harness", "cwd", "output", "started_at"],
+  "properties": {
+    "format": {"const": "hive-route.attempt/1"},
+    "attempt": {"type": "string", "minLength": 1},
+    "task": {"type": "string", "minLength": 1},
+    "route_id": {"type": "string", "minLength": 1},
+    "route_pin": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "model": {"type": "string", "minLength": 1},
+    "effort": {"type": ["string", "null"]},
+    "harness": {"type": "string", "minLength": 1},
+    "cwd": {"type": "string", "minLength": 1},
+    "output": {"type": "string", "minLength": 1},
+    "started_at": {"type": "string", "format": "date-time"}
+  }
+}

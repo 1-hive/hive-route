@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/suite-v1.schema.json",
+  "title": "hive-route canary suite, format 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "name", "cases"],
+  "properties": {
+    "format": {"const": "hive-route.suite/1"},
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "pass_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "prompt", "check"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+          "kind": {"enum": ["work", "review", "plan", "consult", "triage", "digest"]},
+          "prompt": {"type": "string", "minLength": 1},
+          "files": {"type": "string", "minLength": 1},
+          "check": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "timeout_minutes": {"type": "number", "exclusiveMinimum": 0},
+          "check_timeout_seconds": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+# The starter canary suite (ROUTING.md §3): small tasks with checks the model can't edit.
+# For hives without past tasks of their own; a hive should add cases from its own work.
+format: hive-route.suite/1
+name: starter
+description: Three work cases (a bug fix, a function from a spec, a change across files) and two reviews (one change with a bug, one without).
+cases:
+  - {id: fix-bug, kind: work, prompt: fix-bug/PROMPT.md, files: fix-bug/files, check: [python3, "{case}/check.py"], timeout_minutes: 10}
+  - {id: implement-spec, kind: work, prompt: implement-spec/PROMPT.md, files: implement-spec/files, check: [python3, "{case}/check.py"], timeout_minutes: 10}
+  - {id: multi-file-change, kind: work, prompt: multi-file-change/PROMPT.md, files: multi-file-change/files, check: [python3, "{case}/check.py"], timeout_minutes: 15}
+  - {id: review-buggy, kind: review, prompt: review-buggy/PROMPT.md, files: review-buggy/files, check: [python3, "{case}/check.py"], timeout_minutes: 10}
+  - {id: review-clean, kind: review, prompt: review-clean/PROMPT.md, files: review-clean/files, check: [python3, "{case}/check.py"], timeout_minutes: 10}

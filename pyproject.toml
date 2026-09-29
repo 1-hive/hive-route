@@ -36,7 +36,7 @@ packages = ["src/hiveroute"]
 "schemas" = "hiveroute/_schemas"
 
 [tool.hatch.build.targets.sdist]
-include = ["src/hiveroute", "schemas", "fixtures", "examples", "ROUTING.md", "README.md", "LICENSE", "tests"]
+include = ["src/hiveroute", "schemas", "fixtures", "examples", "canaries", "ROUTING.md", "README.md", "LICENSE", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
