@@ -160,7 +160,7 @@ def header(c, doc):
     c.setFillColor(MUTED)
     c.drawString(M + tw + 3 * mm, H - M - 5 * mm, 'a slim model router for One Hive (R8)')
     c.setFont('Sans', 7.4)
-    c.drawRightString(W - M, H - M - 5 * mm, 'rev 3 · 29 Sep 2026 · details in ROUTING.md')
+    c.drawRightString(W - M, H - M - 5 * mm, 'rev 4 · 29 Sep 2026 · details in ROUTING.md')
     c.setStrokeColor(ACC)
     c.setLineWidth(1.4)
     c.line(M, H - M - 8.2 * mm, W - M, H - M - 8.2 * mm)
@@ -263,19 +263,20 @@ s.append(B('The route table is the source of truth; gateway fallbacks and hidden
 
 s.append(P('How it fits One Hive', h2))
 s.append(table([
-    ['R1 record', 'route.* events: decided (with facts), waiting, canary, drift, override, mode. '
-                  'A replayable JSONL log until the record admits them.'],
+    ['R1 record', 'route.* summaries (amendment A1): decided, waiting, canary, drift, mode, table; '
+                  'each bound to the router\'s full, replayable log entry.'],
     ['R5 review', 'Rules F7 and RT4.'],
     ['R6 runtime', 'Asks the router at each attempt start; launches the harness with the answer.'],
     ['R9 replay', 'Replays under another table; evaluates the scorer; proposes tuning.'],
 ], [19 * mm, cw - 19 * mm]))
 
 s.append(P('Rollout, and what "done" means', h2))
-s.append(P(f'<b>Built:</b> decide(), the rules and a replayable log. <b>Next:</b> launcher in <b>fixed</b> mode '
-           f'(the baseline) {ARROW} usage tracking {ARROW} canaries {ARROW} <b>live</b> {ARROW} gateway once a '
-           f'metered pool exists {ARROW} scorer in shadow {ARROW} record events {ARROW} tuning. <b>Done:</b> a '
-           'hive uses it for real work; more accepted tasks per unit of capacity than the baseline, with no '
-           'drop in review pass rate.'))
+s.append(P(f'<b>Built:</b> decide() and its rules, usage from providers\' own reports, canaries with a '
+           'starter suite, drift checks, the scorer on a local model, shadow tables and what-if replay, '
+           'a generated gateway config, and routing on the hive record (amendment A1). '
+           f'<b>Next, in a hive:</b> fixed mode (the baseline) {ARROW} canaries {ARROW} <b>live</b> {ARROW} tuning. '
+           '<b>Done:</b> a hive uses it for real work; more accepted tasks per unit of capacity than the '
+           'baseline, with no drop in review pass rate.'))
 s.append(P('Not in v1: the scorer setting tiers directly, automatic tuning, a spend ledger, '
            'mid-attempt switches.', ParagraphStyle('sm2', parent=small, spaceBefore=3, textColor=MUTED)))
 

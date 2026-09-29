@@ -1,7 +1,11 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** agreed, in build · 2026-09-29 · rev 3 (build step 1 done; aligned with the frozen record, hive-record SPEC v1.0; `interrupted` failure class; exact `decide()` contract)
+**Status:** agreed, in build · 2026-09-29 · rev 4 (build steps 2–8 built; 1-hive runs `fixed` mode with usage, drift checks and the scorer in shadow)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
+
+**Changes in rev 4:**
+- Every build step now has an implementation (§11): usage tracking from providers' own reports (§7), drift checks through attempt manifests and canaries with a starter suite (§3), the scorer on a local model (§4.3), shadow tables, what-if replay and an outcomes report (§4.6, §6), a generated gateway config (§8), and recording on the hive record through its amendment A1 (§9.1).
+- What remains is operational, in 1-hive (§11.1): run the canaries, apply A1 and register the router, then switch to `live`.
 
 **Changes in rev 3:**
 - R1 now exists: the record (hive-record SPEC v1.0) runs 1-hive in authoritative mode. It reserves the `route.` prefix for R8 and forbids extensions to use it, so recording routing in the record needs a spec amendment (§9.1). Until then the JSONL log is the router's log.
@@ -62,6 +66,10 @@ A route may serve a tier only after it passes a **canary**: a small fixed set of
 - **Qualification expires** when the model underneath a route changes without the table changing. The router detects this by comparing the model id each response reports with the pinned id; a mismatch triggers `route.drift_detected` and moves the route back to `candidate`.
 - **Canaries are cheap by design:** a handful of tasks per route, rerun only on a change.
 
+**Implementation.** `hive-route canary run TABLE ROUTE --suite DIR --sources FILE --log LOG` runs a suite (`schemas/suite-v1.schema.json`) on one route: each case copies its starting files into a scratch folder, starts the route's harness with the command in the sources file's `harnesses` section, then runs the case's **check from the suite directory** against the folder, so the attempt can't pass by editing its tests. The result (status, route pin, suite pin, per-case results, lesson) goes to the qualifications file, which the state reads (§7), and to the log as `route.canary_recorded`; `canary lesson` replaces the lesson with an operator's. `--max-usage` stops before a case if the route's pool is past that share of a window, since canaries draw on the same pools as live work. `canaries/starter` is the shared starter suite: a bug fix, a function from a spec, a change across files, and two reviews (one change with a bug, one without), each with a check validated against a reference solution.
+
+**Drift, as built.** A launcher writes an **attempt manifest** (`schemas/attempt-v1.schema.json`; `hive-route manifest` makes one from a decision) next to each attempt's output. `hive-route observe LOG MANIFESTS…` reads the models the provider reported for each attempt (Claude Code: the stream's assistant messages; Codex: the session files for the attempt's folder) and logs `route.drift_detected` once per attempt when one differs from the route's model, sending the route back to `candidate`. A harness's own auxiliary models (the sources file's `aux_models`, e.g. Codex's `codex-auto-review` approval reviewer) are not drift.
+
 ---
 
 ## 4. The decision
@@ -121,6 +129,8 @@ Facts are often missing, especially `scope` and `specification` for tasks writte
 - **Shadow first.** It starts in shadow mode: its estimates are logged (`route.scored`) but not used. It goes live when replay (R9) shows that its estimates predict outcomes better than the conservative defaults.
 - **It is called only when needed:** when a fact that could change the tier is unknown. Tasks with complete facts never call it.
 
+**As built.** `decide --task-text FILE` runs the table's `scorer` when the tier with the unknown facts at their conservative values differs from the tier with them at their cheapest. The scorer route is called directly (harness `ollama`: the chat API with a JSON schema, temperature 0); only the unknown facts are asked for, and only well-formed answers are kept. `route.scored` logs the estimates with the tier with and without them, in both modes. In `live` scorer mode the estimates enter the request as `estimated_facts` (source `estimated`), so the decision replays exactly.
+
 ### 4.4 Choosing the route
 
 **Rules, in order.** Each decision records the ids of the rules that decided it.
@@ -143,6 +153,8 @@ Facts are often missing, especially `scope` and `specification` for tasks writte
 ### 4.6 Learning from outcomes
 
 The record holds every attempt's facts, tier, route and outcome. Replay (R9) computes success rates and usage per kind, fact profile and tier, and proposes changes to the table's rules and defaults, e.g. "`work` with `scope: few` and `verification: weak` succeeds on `light` 90% of the time; drop F4 for it". A person approves each change as a new pinned table version, so routing never drifts on its own.
+
+**As built, until R9 exists.** `hive-route report LOG --events FILE --agentsview ROOT` joins the log's attempts with task outcomes from the record's events (reviews passed and failed, closes) and output tokens per task folder from AgentsView, grouped by kind, facts, tier, route and mode; it tallies the scorer's estimated tiers against first-pass acceptance, and proposes trying a tier lower where a group of at least three tasks was always accepted without a failed review. A proposal is tried as a shadow table and checked with `whatif` before anyone pins it.
 
 ### 4.7 The `decide()` contract
 
@@ -188,6 +200,8 @@ The restart context passed to the next attempt includes each earlier attempt's r
 
 Operator overrides (RT1) work in every mode.
 
+**As built.** `hive-route mode MODE TABLE --log LOG` records a mode change; `decide` without `--mode` uses the log's latest. A shadow table is `decide --shadow-table FILE`: decided in `live` mode with the same request and state, logged as `route.shadow_decided`, replayed like any decision, never acted on. `hive-route whatif LOG TABLE` re-decides the whole log under another table, the check before pinning a change; rolling back is re-pinning the previous table file.
+
 ---
 
 ## 7. Usage tracking
@@ -230,6 +244,8 @@ LiteLLM is the default path. The router still works without it (**direct mode**:
 
 **Cost of using it:** one more service to run, with its own database for keys and spend logs, kept separate from the record's.
 
+**As built.** `hive-route gateway-config TABLE` writes the LiteLLM config: one alias per route named by its `route_id`, calling the route's `gateway_model` (Ollama routes derive `ollama_chat/<model>`) with the pool's key from `gateway_key_env`; tags `pool:`, `tier:` and `route:` for spend per pool and route; no retries or fallbacks; `drop_params: false`; `store_model_in_db: false`. Subscription routes only with `--include-subscription`. Budgets aren't generated: the command lists what each metered pool needs, to be set up once the pinned gateway's enforcement is tested. Checked against LiteLLM 1.103.0: the config loads, the `qwen-local` alias reaches Ollama, and an unsupported parameter fails instead of being dropped. (LiteLLM reserves `model_info.tier`, and skips a deployment that sets it with only a logged error, so route fields carry a `route_` prefix there.)
+
 ---
 
 ## 9. How it fits the hive
@@ -259,15 +275,15 @@ LiteLLM is the default path. The router still works without it (**direct mode**:
 
 Result and review events carry the attempt's usage with `route_id` and `pool` (an extension field on the record's existing events), so usage can be attributed per route. With the gateway, a usage instrument fills usage from gateway logs instead of workers reporting it.
 
-### 9.1 What the record needs before it holds routing
+### 9.1 Routing on the record: amendment A1
 
-The record froze as SPEC v1.0 on 2026-09-28. It reserves the prefixes `message.`, `skill.`, `route.`, `trial.` and `memory.` for R4–R10 and forbids extensions to use them (SPEC §9), and any change after freezing is a numbered amendment (SPEC Appendix D). So these are changes to `hive-record`, proposed there, not made from here:
+The record froze as SPEC v1.0 on 2026-09-28 with the `route.` prefix reserved, so routing entered it as a numbered amendment: **hive-record A1** (2026-09-29, SPEC Appendix D; core legality table 1.1.0; tag `spec-v1.0-a1`). It admits six event types on the `hive` entity, with no refs, conditions or effects, so routing never touches task state: `route.table_pinned`, `route.mode_set` (class `instrument` or `operator`), `route.decided`, `route.waiting`, `route.canary_recorded`, `route.drift_detected` (class `instrument`). Task ids are in `data`, not the envelope.
 
-1. **Core amendment:** admit the `route.` family: the event types and data schemas above, a rule per type allowing class `instrument` (and `operator` for `route.override`, `route.table_pinned` and `route.mode_set`), and no task transitions. Refs are pins of tables and canary results.
-2. **`1-hive` profile:**
-   - `task.created` ext: `kind` widened to the six kinds, and optional `specification`, `verification`, `scope`, `consequence`, so the facts are on the task where the router can read them (§4.1).
-   - The `cost` ext on `task.reported`, `task.result_posted` and `review.recorded` gains `route_id`, `pool` and `usage_basis`.
-3. **Deployment (1-hive):** register the router as an actor of class `instrument` with its own key, and re-declare actors' `model_route` as route ids (today they hold model names such as `claude-opus-5-5` and `codex-default`).
+**Summaries, bound to the full entry.** A decision replays only with its full request, state and table, which exceed the record's 8 KiB data limit. So the record gets a compact summary (the route, model, tiers, facts with which were estimated, and the ids of the rules that applied), and `log: {seq, digest}`: the entry's seq in the router's log and the SHA-256 of its canonical line. `route.scored` and `route.shadow_decided` stay in the router's log; they are evaluation data.
+
+**Recording.** `hive-route record LOG` posts the summaries of entries not yet recorded through `hive emit`, as the router's actor (class `instrument`, its own key), with an idempotency key naming the entry's content; progress is kept in `<log>.recorded`. The summaries of 1-hive's real log were checked against hive-record's engine: all accepted.
+
+**Not in A1, deferred:** facts as fields of `task.created` in the `1-hive` profile (today a launcher passes them; trigger: the chief of staff sets them on tasks through the record), usage fields on the profile's `cost` ext (trigger: a metered pool, where usage is measured), and re-declaring actors' `model_route` as route ids (trigger: an actor pinned to one route).
 
 **The JSONL log** (`src/hiveroute/log.py`) is the interim form. Each line is `{v, seq, type, at, router, data}` in canonical JSON: `seq` is gapless (appends take a file lock), `at` is wall time and informational, `router` is the router's version. `route.decided` (and `route.waiting`, for every other outcome) carries the full request, state, mode and table pin with the decision; every table a decision names was logged in full by an earlier `route.table_pinned`. So `hive-route replay` recomputes every decision from the log alone, and an import into the record needs nothing else.
 
@@ -315,27 +331,28 @@ A hive on API keys only lists metered pools and sets `prefer: cost`. A hive on s
 
 ## 11. Build sequence
 
-1. **Core library and CLI:** route table schema, pools, `decide()`, rule fixtures, JSONL log. **Done** (2026-09-29): package `hiveroute`, CLI `hive-route` (`check`, `decide`, `mode`, `replay`); `fixed` mode included, since step 4 needs it.
-2. **Gateway:** config generated from the route table; per-actor keys; request tagging; retries and fallbacks off; budget enforcement tested.
-3. **Usage tracking** for all three pool kinds. **Subscriptions done** (2026-09-29): `hiveroute.usage`, `hive-route state`, `decide --sources`. Metered pools wait for a gateway (step 2); local pools for a served model.
-4. **Launcher integration,** starting in `fixed` mode to capture a baseline.
-5. **Canaries and drift detection;** then switch to `live`.
-6. **Scorer** in shadow mode; live once replay supports it.
-7. **Record events,** once R1 is running.
-8. **Shadow tables** and outcome-based tuning (§4.6), with evaluation through R9.
+Every step is built (2026-09-29); what's left is operational (§11.1).
+
+1. **Core library and CLI:** `hiveroute`, `hive-route check|decide|mode|replay`; rule fixtures; JSONL log.
+2. **Gateway:** `hive-route gateway-config` (§8). Per-actor keys and budgets wait for a metered pool: they are gateway setup, tested on the pinned version.
+3. **Usage tracking:** `hive-route state`, `decide --sources` (§7). Subscriptions from providers' reports; metered pools from the gateway once there is one; local pools as concurrency.
+4. **Launcher integration:** 1-hive's launcher (§11.1).
+5. **Canaries and drift detection:** `hive-route canary run|lesson`, `canaries/starter`, attempt manifests, `hive-route observe` (§3).
+6. **Scorer:** `decide --task-text`, on a local model, in shadow mode (§4.3).
+7. **Record events:** hive-record A1 and `hive-route record` (§9.1).
+8. **Shadow tables and tuning:** `decide --shadow-table`, `whatif`, `report` (§4.6, §6).
 
 ### 11.1 Where 1-hive stands (2026-09-29)
 
-1-hive's capacity is one Claude Pro plan (the chief of staff, workers and interactive sessions all draw on it) and one ChatGPT plan (Codex reviewers). There are no API keys and no local model is served, though the host has a GPU. Workers run `claude-opus-5-5`; Codex reviewers run `gpt-5.6-sol` at medium effort. `examples/1-hive.yaml` is that setup as a table.
+1-hive's capacity is one Claude Pro plan (chief of staff, workers, interactive sessions) and one ChatGPT plan (Codex), plus the host's GPU, which now serves `qwen3:8b` through Ollama (a user service on 127.0.0.1:11434). The table is `1-hive/deploy/route-table.yaml` (v3: opus/sonnet/haiku and gpt-5.6-sol at high/medium/low effort, a route per tier in each family; `qwen-local` for the scorer); `examples/1-hive.yaml` mirrors it.
 
-| Step | Can start | Waits for |
-|---|---|---|
-| 2. Gateway | no | A metered pool. With only subscriptions, §8 says direct mode. |
-| 3. Usage tracking | **done** for subscriptions (2026-09-29) | Window shares come from worker streams (Claude plan) and Codex session files (ChatGPT plan). Interactive Claude sessions don't write reports, so between worker runs the Claude reading goes stale and is marked `estimated`. AgentsView v0.44.0 is installed for per-task tokens and cost. |
-| 4. Launcher integration | **done** (2026-09-29) | `1-hive/tools/launch-task.sh` asks the router for every attempt, in `fixed` mode, logging to `~/work/1hive/route-log.jsonl`; the table is `1-hive/deploy/route-table.yaml`. |
-| 5. Canaries | needs a starter set | The hive's past tasks take hours, use shared containers and ports, and draw on the same plan as live work; canaries need small tasks and off-hours runs. |
-| 6. Scorer | no | A served local model, and replay (R9). |
-| 7. Record events | no | The amendments in §9.1. |
+**Running now:** `1-hive/tools/launch-task.sh` asks the router for every attempt, in `fixed` mode (today's models, now explicit: the baseline), with pool usage from `deploy/route-sources.yaml`, so a pool at its limit waits instead of starting a worker that fails. It writes an attempt manifest, checks earlier attempts for drift, passes the task's text to the scorer (shadow) and optional facts, hint and failure class from the chief of staff (`ROUTE_FACTS`, `ROUTE_HINT`, `ROUTE_LAST_CLASS`, `ROUTE_REASON`), and starts whichever harness the router picks. Decisions go to `~/work/1hive/route-log.jsonl`. AgentsView v0.44.0 gives tokens per task for `report`.
+
+**Left to do, in order:**
+1. **Canaries:** run the starter suite on all six routes; `--max-usage` keeps them off a busy plan.
+2. **Record:** the operator applies A1 (`hive.policy_changed` to the `spec-v1.0-a1` policy pin) and registers the `router` actor; the launcher then records routing on its own.
+3. **Live:** once the routes a tier needs are qualified, `hive-route mode live`. With no facts supplied, tasks still route strong; the chief of staff lowers tiers by supplying facts.
+4. **Tune:** after enough tasks, `report` and `whatif` against a proposed table; turn the scorer live once its estimates are shown to match outcomes.
 
 **Deferred, each with its trigger:**
 
