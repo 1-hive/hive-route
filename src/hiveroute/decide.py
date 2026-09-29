@@ -311,13 +311,15 @@ def decide(request: dict, table: Table, state: dict, mode: str = "live") -> dict
         "decision": None, "task": request["task"], "attempt": request["attempt"],
         "mode": mode, "table": table.pin, "tier": tier, "computed_tier": tier, "facts": facts,
         "route_id": None, "route_pin": None, "pool": None, "model": None,
+        "harness": None, "endpoint": None, "effort": None,
         "reasons": reasons, "suggestions": suggestions, "rejected": {}, "wait_until": None,
     }
 
     def chosen(rid: str) -> dict:
         route = table.routes[rid]
         out.update(decision="route", route_id=rid, route_pin=table.route_pin(rid),
-                   pool=route["pool"], model=route["model"])
+                   pool=route["pool"], model=route["model"], harness=route.get("harness"),
+                   endpoint=route.get("endpoint"), effort=route.get("effort"))
         return out
 
     # RT1: an operator override wins, in every mode.

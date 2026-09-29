@@ -47,3 +47,15 @@ def test_decide_bad_input(tmp_path, capsys):
     req.write_text("[1]")
     assert main(["decide", TABLE, str(req)]) == 2
     assert "INPUT_INVALID" in capsys.readouterr().err
+
+
+def test_decide_gives_launch_fields(tmp_path, capsys):
+    """A launcher gets everything it needs to start the harness from the decision."""
+    example = str(FIXTURES.parent / "examples" / "1-hive.yaml")
+    req = tmp_path / "req.json"
+    req.write_text(json.dumps({"task": "t", "attempt": "t.r1", "facts": {"kind": "review"},
+                               "author": {"family": "claude"}}))
+    assert main(["decide", example, str(req), "--mode", "fixed"]) == 0
+    d = json.loads(capsys.readouterr().out)
+    assert (d["harness"], d["model"], d["effort"], d["endpoint"]) == (
+        "codex", "gpt-5.6-sol", "medium", None)
