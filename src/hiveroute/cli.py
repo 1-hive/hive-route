@@ -18,6 +18,7 @@ from .errors import RouteError
 from .evaluate import agentsview_usage, load_events, report, shadow, whatif
 from .gateway import budget_notes, litellm_config
 from .observe import CODEX_ROOT, find_manifests, observe
+from .record import sync
 from .scorer import apply, score
 from .table import load_table
 from .usage import collect, load_sources
@@ -113,6 +114,11 @@ def _parser() -> argparse.ArgumentParser:
     g.add_argument("table")
     g.add_argument("--include-subscription", action="store_true",
                    help="also subscription routes (only where the provider's terms allow it)")
+
+    rc = sub.add_parser("record", help="post new log entries' summaries to the hive record (A1)")
+    rc.add_argument("log")
+    rc.add_argument("--hive-cmd", default="hive", help="the hive CLI (identity from HIVE_* env)")
+    rc.add_argument("--dry-run", action="store_true", help="print the events instead")
 
     w = sub.add_parser("whatif", help="re-decide every logged request under another table")
     w.add_argument("log")
@@ -247,6 +253,16 @@ def _run(args: argparse.Namespace) -> int:
         for n in budget_notes(t):
             print(f"budget: {n}", file=sys.stderr)
         return 0
+
+    if args.cmd == "record":
+        from .record import emit_with_hive
+        posted, errors = sync(args.log, lambda t, d, k: emit_with_hive(t, d, k, args.hive_cmd),
+                              args.dry_run)
+        for e in errors:
+            print(f"hive-route: record: {e}", file=sys.stderr)
+        if not args.dry_run:
+            print(f"{posted} events recorded")
+        return 7 if errors else 0
 
     if args.cmd == "whatif":
         r = whatif(args.log, load_table(args.table))
