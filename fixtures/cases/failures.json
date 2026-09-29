@@ -87,7 +87,7 @@
  },
  {
   "name": "RT5 outage with nowhere to go waits",
-  "table": "../../examples/1-hive.yaml",
+  "table": "1-hive-v1.yaml",
   "state": {
    "pools": {
     "chatgpt-plan": {

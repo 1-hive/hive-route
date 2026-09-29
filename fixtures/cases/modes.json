@@ -93,7 +93,7 @@
  {
   "name": "1-hive baseline: a review runs on Codex",
   "mode": "fixed",
-  "table": "../../examples/1-hive.yaml",
+  "table": "1-hive-v1.yaml",
   "request": {
    "facts": {
     "kind": "review"

@@ -94,6 +94,8 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--case", action="append", help="run only this case (repeatable)")
     cr.add_argument("--lesson", help="the lesson to record (default: a summary of the results)")
     cr.add_argument("--codex-root", default=CODEX_ROOT)
+    cr.add_argument("--max-usage", type=float,
+                    help="stop before a case if the route's pool has used this share (0-1)")
     cl = csub.add_parser("lesson", help="record an operator's lesson for a route")
     cl.add_argument("route")
     cl.add_argument("lesson")
@@ -184,11 +186,13 @@ def _run(args: argparse.Namespace) -> int:
             print(f"{args.route}: {e['status']}; lesson recorded")
             return 0
         e = qualify(load_table(args.table), args.route, args.suite, sources, args.log,
-                    args.lesson, args.case, args.codex_root)
+                    args.lesson, args.case, args.codex_root, args.max_usage)
         for r in e["results"]:
             print(f"  {r['case']:<20} {'pass' if r['passed'] else 'FAIL'}  {r['seconds']:>6}s  "
                   f"{', '.join(r['observed_models']) or '-'}")
         print(f"{args.route}: {e['status']} ({e['passed']}/{e['cases']}); {e['lesson']}")
+        if e["stopped"]:
+            return 6
         return 0 if e["status"] == "qualified" else 5
 
     if args.cmd == "replay":

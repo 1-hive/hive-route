@@ -441,7 +441,7 @@
  },
  {
   "name": "prefer headroom spreads load across plans",
-  "table": "../../examples/1-hive.yaml",
+  "table": "1-hive-v1.yaml",
   "state": {
    "pools": {
     "claude-plan": {
@@ -476,7 +476,7 @@
  },
  {
   "name": "prefer headroom ranks unknown usage last",
-  "table": "../../examples/1-hive.yaml",
+  "table": "1-hive-v1.yaml",
   "state": {
    "pools": {
     "chatgpt-plan": {

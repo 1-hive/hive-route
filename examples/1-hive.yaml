@@ -3,19 +3,26 @@
 # subscription and the gateway is not used (direct mode, ROUTING.md §8).
 # `fixed` reproduces today's launcher: the baseline to measure against (§6).
 # This belongs in 1-hive/deploy once the launcher calls the router (build step 4).
+# Version 2: a route per tier in each family, so a review (a different family, RT4)
+# has a route at every tier; effort is the lever within Codex's one model.
 format: hive-route.table/1
-version: 1
+version: 2
 prefer: headroom
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
   chatgpt-plan: {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
 routes:
   opus-plan:    {tier: strong,   pool: claude-plan,  family: claude, harness: claude-code, model: claude-opus-5-5, tools: true}
-  sonnet-plan:  {tier: standard, pool: claude-plan,  family: claude, harness: claude-code, model: claude-sonnet-5-5, tools: true}
-  gpt-sol-plan: {tier: strong,   pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: medium, tools: true}
+  gpt-sol-high: {tier: strong,   pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: high, tools: true}
+  sonnet-plan:  {tier: standard, pool: claude-plan,  family: claude, harness: claude-code, model: claude-sonnet-5, tools: true}
+  gpt-sol-plan: {tier: standard, pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: medium, tools: true}
+  haiku-plan:   {tier: light,    pool: claude-plan,  family: claude, harness: claude-code, model: claude-haiku-4-5-20251001, tools: true}
+  gpt-sol-low:  {tier: light,    pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: low, tools: true}
 tiers:
-  strong:   [opus-plan, gpt-sol-plan]
-  standard: [sonnet-plan]
+  strong:   [opus-plan, gpt-sol-high]
+  standard: [sonnet-plan, gpt-sol-plan]
+  light:    [haiku-plan, gpt-sol-low]
+# fixed mode: the launcher's models before routing, the baseline (§6).
 fixed:
   work: opus-plan
   review: gpt-sol-plan

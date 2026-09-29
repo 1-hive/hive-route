@@ -88,3 +88,19 @@ def test_starter_suite_loads():
         assert (root / c["prompt"]).is_file() and (root / c["files"]).is_dir()
     assert pin.startswith("sha256:")
     assert Path(root / "fix-bug" / "check.py").is_file()
+
+
+def test_busy_pool_stops_the_run(tmp_path, capsys):
+    suite, sources, log = setup(tmp_path, "ok")
+    s = json.loads(Path(sources).read_text())
+    stream = tmp_path / "w.jsonl"
+    stream.write_text(json.dumps({"type": "rate_limit_event", "rate_limit_info": {
+        "status": "allowed", "unifiedWindows": {
+            "five_hour": {"utilization": 0.7, "resetsAt": 4102444800},
+            "seven_day": {"utilization": 0.2, "resetsAt": 4102444800}}}}) + "\n")
+    s["pools"] = {"claude-plan": [{"reader": "claude-stream", "paths": [str(stream)]}]}
+    Path(sources).write_text(json.dumps(s))
+    assert main(["canary", "run", TABLE_PATH, "opus-plan", "--suite", suite, "--sources", sources,
+                 "--log", log, "--max-usage", "0.6"]) == 6
+    q = json.loads((tmp_path / "q.json").read_text())["opus-plan"]
+    assert q["status"] == "candidate" and q["lesson"].startswith("stopped after 0 of 1 cases")

@@ -112,10 +112,29 @@ def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, 
             "work": str(work), "output": str(output)}
 
 
+def pool_busy(table: Table, route_id: str, sources: dict, max_usage: float) -> str | None:
+    """Why the route's pool is too busy for a canary now, or None. Canaries draw on the
+    same pools as live work, so they stop before a window passes ``max_usage``."""
+    from .usage import collect
+    pid = table.routes[route_id]["pool"]
+    state, _ = collect(table, sources, datetime.now(UTC))
+    p = state.get("pools", {}).get(pid, {})
+    if "limited_until" in p:
+        return f"pool {pid} at a limit until {p['limited_until']}"
+    for key, u in p.get("usage", {}).items():
+        if u.get("used") is not None and u["used"] >= max_usage:
+            return f"pool {pid} {key} at {u['used']:.0%} (canaries stop at {max_usage:.0%})"
+    return None
+
+
 def qualify(table: Table, route_id: str, suite_path: str, sources: dict, log: str,
             lesson: str | None = None, cases: list[str] | None = None,
-            codex_root: str = CODEX_ROOT) -> dict:
-    """Run the suite on one route and record the result. Returns the qualification entry."""
+            codex_root: str = CODEX_ROOT, max_usage: float | None = None) -> dict:
+    """Run the suite on one route and record the result. Returns the qualification entry.
+
+    With ``max_usage``, each case first checks the route's pool (``pool_busy``); a busy
+    pool stops the run, which is recorded as incomplete and leaves the route a candidate.
+    """
     if route_id not in table.routes:
         raise RouteError("INPUT_INVALID", f"unknown route {route_id!r}")
     route = table.routes[route_id]
@@ -129,20 +148,29 @@ def qualify(table: Table, route_id: str, suite_path: str, sources: dict, log: st
     kinds = {c["kind"] for c in chosen}
     base = Path(os.path.expanduser(sources.get("canary_workdir", "~/.cache/hive-route/canary")))
 
-    results = [run_case(route_id, route, c, root, harnesses[route["harness"]], base, codex_root)
-               for c in chosen]
+    results, stopped = [], None
+    for c in chosen:
+        if max_usage is not None:
+            stopped = pool_busy(table, route_id, sources, max_usage)
+            if stopped:
+                break
+        results.append(run_case(route_id, route, c, root, harnesses[route["harness"]], base,
+                                codex_root))
     npass = sum(r["passed"] for r in results)
     drift = sorted({m for r in results for m in r["observed_models"] if m != route["model"]})
     needed = suite.get("pass_fraction", 1.0) * len(results)
-    status = "qualified" if results and npass >= needed and not drift else "candidate"
+    status = ("qualified" if results and not stopped and npass >= needed and not drift
+              else "candidate")
     failed = [r["case"] for r in results if not r["passed"]]
-    auto = (f"{npass}/{len(results)} cases passed"
+    auto = ((f"stopped after {len(results)} of {len(chosen)} cases: {stopped}; " if stopped
+             else "")
+            + f"{npass}/{len(results)} cases passed"
             + (f"; failed: {', '.join(failed)}" if failed else "")
             + (f"; reported models differ from {route['model']}: {', '.join(drift)}"
                if drift else ""))
     entry = {"status": status, "route_pin": table.route_pin(route_id), "suite": suite["name"],
              "suite_pin": suite_pin, "kinds": sorted(kinds), "at": format_time(datetime.now(UTC)),
-             "passed": npass, "cases": len(results), "lesson": lesson or auto,
+             "passed": npass, "cases": len(results), "stopped": stopped, "lesson": lesson or auto,
              "results": [{k: r[k] for k in ("case", "passed", "harness_exit", "seconds",
                                              "observed_models", "work")} for r in results]}
 
