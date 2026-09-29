@@ -1,0 +1,110 @@
+[
+ {
+  "name": "fixed maps the kind to one route, qualified or not",
+  "mode": "fixed",
+  "qualify": [],
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "strong",
+   "computed_tier": "light",
+   "route_id": "opus-plan",
+   "rules": [
+    "fixed"
+   ]
+  }
+ },
+ {
+  "name": "fixed with no route for the kind",
+  "mode": "fixed",
+  "request": {
+   "facts": {
+    "kind": "plan",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "no_route"
+  }
+ },
+ {
+  "name": "fixed waits when its pool is at a limit",
+  "mode": "fixed",
+  "state": {
+   "pools": {
+    "claude-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "wait",
+   "wait_until": "2026-09-29T15:00:00Z"
+  }
+ },
+ {
+  "name": "fixed still honours an override",
+  "mode": "fixed",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "override": {
+    "route_id": "sonnet-plan",
+    "reason": "compare",
+    "by": "operator"
+   }
+  },
+  "expect": {
+   "route_id": "sonnet-plan",
+   "rules": [
+    "RT1"
+   ]
+  }
+ },
+ {
+  "name": "1-hive baseline: a review runs on Codex",
+  "mode": "fixed",
+  "table": "../../examples/1-hive.yaml",
+  "request": {
+   "facts": {
+    "kind": "review"
+   },
+   "author": {
+    "family": "claude"
+   }
+  },
+  "expect": {
+   "route_id": "gpt-sol-plan",
+   "tier": "strong"
+  }
+ }
+]

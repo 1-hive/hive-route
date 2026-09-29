@@ -1,0 +1,501 @@
+[
+ {
+  "name": "nothing qualified is no_route",
+  "qualify": [],
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "decision": "no_route",
+   "tier": "strong",
+   "rules": [
+    "RT2"
+   ]
+  }
+ },
+ {
+  "name": "a qualification for another route version does not count",
+  "stale": [
+   "opus-plan"
+  ],
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "estimate": {
+    "input_tokens": 400000,
+    "output_tokens": 40000
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "route_id": "gpt-high-api",
+   "rejected": [
+    "opus-plan"
+   ]
+  }
+ },
+ {
+  "name": "metered usage unknown blocks and waits",
+  "stale": [
+   "opus-plan"
+  ],
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "decision": "wait",
+   "wait_until": null,
+   "rules": [
+    "RT3"
+   ]
+  }
+ },
+ {
+  "name": "prefer cost ranks metered routes by estimated price",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "claude-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "estimate": {
+    "input_tokens": 400000,
+    "output_tokens": 40000
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "route_id": "gpt-high-api",
+   "rejected": [
+    "opus-plan"
+   ]
+  }
+ },
+ {
+  "name": "without an estimate, metered routes tie on their maximum and keep listed order",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "claude-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "route_id": "opus-api"
+  }
+ },
+ {
+  "name": "an expired limit no longer blocks",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "claude-plan": {
+     "limited_until": "2026-09-29T11:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "route_id": "opus-plan"
+  }
+ },
+ {
+  "name": "RT6 skips a pool above the soft threshold",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "claude-plan": {
+     "usage": {
+      "window/5h": {
+       "used": 0.9,
+       "basis": "estimated"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "estimate": {
+    "input_tokens": 400000,
+    "output_tokens": 40000
+   }
+  },
+  "expect": {
+   "route_id": "gpt-high-api",
+   "rules": [
+    "RT6"
+   ]
+  }
+ },
+ {
+  "name": "RT6 uses a pool above the soft threshold when it is the only one",
+  "state": {
+   "pools": {
+    "claude-plan": {
+     "usage": {
+      "window/5h": {
+       "used": 0.9,
+       "basis": "estimated"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "plan",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "tier": "standard",
+   "route_id": "sonnet-plan"
+  }
+ },
+ {
+  "name": "a used-up subscription window blocks",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "claude-plan": {
+     "usage": {
+      "window/7d": {
+       "used": 1.0,
+       "basis": "estimated",
+       "resets_at": "2026-09-29T15:00:00Z"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "route_id": "opus-api",
+   "rejected": [
+    "opus-plan"
+   ]
+  }
+ },
+ {
+  "name": "budget: an attempt's maximum must fit what remains",
+  "state": {
+   "pools": {
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 490,
+       "basis": "measured"
+      }
+     }
+    },
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "claude-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "route_id": "gpt-high-api",
+   "rejected": [
+    "opus-api"
+   ]
+  }
+ },
+ {
+  "name": "a smaller per-request maximum fits, but RT6 still prefers a pool below the soft threshold",
+  "state": {
+   "pools": {
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 490,
+       "basis": "measured"
+      }
+     }
+    },
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "claude-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "max_attempt_usd": 5
+  },
+  "expect": {
+   "route_id": "gpt-high-api",
+   "rules": [
+    "RT6"
+   ],
+   "not_rejected": [
+    "opus-api"
+   ]
+  }
+ },
+ {
+  "name": "context must fit with margin",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "context_tokens": 190000
+  },
+  "expect": {
+   "route_id": "gpt-high-api",
+   "rejected": [
+    "opus-plan",
+    "opus-api"
+   ]
+  }
+ },
+ {
+  "name": "RT1 operator override wins, even below the tier",
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "override": {
+    "route_id": "qwen-local",
+    "reason": "experiment",
+    "by": "operator"
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "strong",
+   "route_id": "qwen-local",
+   "rules": [
+    "RT1"
+   ]
+  }
+ },
+ {
+  "name": "prefer headroom spreads load across plans",
+  "table": "../../examples/1-hive.yaml",
+  "state": {
+   "pools": {
+    "claude-plan": {
+     "usage": {
+      "window/5h": {
+       "used": 0.5,
+       "basis": "estimated"
+      }
+     }
+    },
+    "chatgpt-plan": {
+     "usage": {
+      "window/5h": {
+       "used": 0.2,
+       "basis": "estimated"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "route_id": "gpt-sol-plan",
+   "rules": [
+    "RT6"
+   ]
+  }
+ },
+ {
+  "name": "prefer headroom ranks unknown usage last",
+  "table": "../../examples/1-hive.yaml",
+  "state": {
+   "pools": {
+    "chatgpt-plan": {
+     "usage": {
+      "window/5h": {
+       "used": 0.7,
+       "basis": "estimated"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "route_id": "gpt-sol-plan"
+  }
+ }
+]

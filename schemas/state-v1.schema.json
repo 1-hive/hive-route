@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/state-v1.schema.json",
+  "title": "hive-route capacity and qualification state, format 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["as_of"],
+  "properties": {
+    "as_of": {"type": "string", "format": "date-time"},
+    "pools": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limited_until": {"type": "string", "format": "date-time"},
+          "in_flight": {"type": "integer", "minimum": 0},
+          "usage": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["basis"],
+              "properties": {
+                "used": {"type": ["number", "null"], "minimum": 0},
+                "basis": {"enum": ["measured", "estimated", "unknown"]},
+                "resets_at": {"type": "string", "format": "date-time"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "route_pin"],
+        "properties": {
+          "status": {"enum": ["candidate", "qualified", "retired"]},
+          "route_pin": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

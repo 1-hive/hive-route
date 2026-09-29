@@ -1,0 +1,506 @@
+[
+ {
+  "name": "unknown facts are conservative",
+  "request": {
+   "facts": {
+    "kind": "work"
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "strong",
+   "route_id": "opus-plan",
+   "rules": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "RT6"
+   ],
+   "suggest": true
+  }
+ },
+ {
+  "name": "well-specified work runs light",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "light",
+   "route_id": "mini-api",
+   "rules": [
+    "F1"
+   ],
+   "not_rules": [
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6"
+   ]
+  }
+ },
+ {
+  "name": "digest runs local",
+  "request": {
+   "facts": {
+    "kind": "digest",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "local",
+   "route_id": "qwen-local"
+  }
+ },
+ {
+  "name": "plan kind floor is standard",
+  "request": {
+   "facts": {
+    "kind": "plan",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "standard",
+   "route_id": "sonnet-plan"
+  }
+ },
+ {
+  "name": "consult kind floor is strong",
+  "request": {
+   "facts": {
+    "kind": "consult",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "tools_needed": false
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "strong",
+   "route_id": "opus-plan"
+  }
+ },
+ {
+  "name": "F2 goal-only work is standard, with a split suggestion",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "goal_only",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "tier": "standard",
+   "rules": [
+    "F2"
+   ],
+   "suggest": true
+  }
+ },
+ {
+  "name": "F3 scope many is standard",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "many",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "tier": "standard",
+   "rules": [
+    "F3"
+   ]
+  }
+ },
+ {
+  "name": "F4 no verification is standard",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "none",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "tier": "standard",
+   "rules": [
+    "F4"
+   ]
+  }
+ },
+ {
+  "name": "F5 costly with weak verification is strong",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "weak",
+    "scope": "single",
+    "consequence": "costly",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "tier": "strong",
+   "rules": [
+    "F5"
+   ]
+  }
+ },
+ {
+  "name": "F5 does not apply with independent verification",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "costly",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "tier": "light",
+   "not_rules": [
+    "F5"
+   ]
+  }
+ },
+ {
+  "name": "F6 high leverage with weak verification is strong",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "weak",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 5
+   }
+  },
+  "expect": {
+   "tier": "strong",
+   "rules": [
+    "F6"
+   ]
+  }
+ },
+ {
+  "name": "F7 review at the author's tier, RT4 skips the author's family",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "review",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "author": {
+    "family": "claude",
+    "tier": "standard"
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "standard",
+   "route_id": "gpt-api",
+   "rules": [
+    "F7"
+   ],
+   "rejected": [
+    "sonnet-plan"
+   ]
+  }
+ },
+ {
+  "name": "F7 unknown author tier is strong",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "review",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "author": {
+    "family": "claude"
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "strong",
+   "route_id": "gpt-high-api",
+   "rejected": [
+    "opus-plan",
+    "opus-api"
+   ]
+  }
+ },
+ {
+  "name": "F7 review of costly work is at least standard",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "review",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "costly",
+    "leverage": 0
+   },
+   "author": {
+    "family": "claude",
+    "tier": "light"
+   }
+  },
+  "expect": {
+   "tier": "standard",
+   "route_id": "gpt-api"
+  }
+ },
+ {
+  "name": "hint raises the tier",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "hint": {
+    "tier": "standard",
+    "reason": "touches the build"
+   }
+  },
+  "expect": {
+   "tier": "standard",
+   "rules": [
+    "hint"
+   ]
+  }
+ },
+ {
+  "name": "hint never lowers the tier",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "many",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "hint": {
+    "tier": "local",
+    "reason": "cheap please"
+   }
+  },
+  "expect": {
+   "tier": "standard"
+  }
+ },
+ {
+  "name": "F8 second failed check moves one tier up",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "mini-api",
+     "tier": "light",
+     "class": "failed_check"
+    },
+    {
+     "attempt": "t.2",
+     "route_id": "mini-api",
+     "tier": "light",
+     "class": "failed_check"
+    }
+   ]
+  },
+  "expect": {
+   "tier": "standard",
+   "rules": [
+    "F8"
+   ]
+  }
+ },
+ {
+  "name": "F8 first failed check stays in the tier",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "mini-api",
+     "tier": "light",
+     "class": "failed_check"
+    }
+   ]
+  },
+  "expect": {
+   "tier": "light",
+   "not_rules": [
+    "F8"
+   ]
+  }
+ },
+ {
+  "name": "F8 on strong suggests a consult",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "weak",
+    "scope": "single",
+    "consequence": "costly",
+    "leverage": 0
+   },
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "failed_check"
+    },
+    {
+     "attempt": "t.2",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "failed_check"
+    }
+   ]
+  },
+  "expect": {
+   "tier": "strong",
+   "rules": [
+    "F8"
+   ],
+   "suggest": true
+  }
+ }
+]

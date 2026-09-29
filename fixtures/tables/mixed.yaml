@@ -1,0 +1,30 @@
+# The ROUTING.md §10 example with placeholder model ids: API keys, a subscription
+# and a local GPU. Used by the fixtures in ../cases.
+format: hive-route.table/1
+version: 1
+soft_threshold: 0.8
+prefer: cost
+leverage_threshold: 3
+allow_upgrade_on_wait: [local, light]
+scorer: {route: qwen-local, mode: shadow, max_output_tokens: 800, timeout_s: 20}
+pools:
+  anthropic-api: {kind: metered, limits: [{usd: 500, per: month}, {usd: 20, per: attempt}]}
+  openai-api:    {kind: metered, limits: [{usd: 300, per: month}, {usd: 20, per: attempt}]}
+  claude-plan:   {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
+  local-gpu:     {kind: local, limits: [{concurrent: 2}]}
+routes:
+  opus-api:     {tier: strong,   pool: anthropic-api, family: claude, model: claude-strong-x, effort: high, tools: true, context_limit: 200000, price: {in: 5, out: 25}}
+  opus-plan:    {tier: strong,   pool: claude-plan,   family: claude, model: claude-strong-x, effort: high, tools: true, context_limit: 200000}
+  gpt-high-api: {tier: strong,   pool: openai-api,    family: gpt,    model: gpt-strong-x, effort: high, tools: true, context_limit: 400000, price: {in: 2, out: 10}}
+  gpt-api:      {tier: standard, pool: openai-api,    family: gpt,    model: gpt-strong-x, effort: medium, tools: true, context_limit: 400000, price: {in: 2, out: 10}}
+  sonnet-plan:  {tier: standard, pool: claude-plan,   family: claude, model: claude-mid-x, tools: true, context_limit: 200000}
+  mini-api:     {tier: light,    pool: openai-api,    family: gpt,    model: gpt-mini-x, tools: true, context_limit: 400000, price: {in: 0.25, out: 2}}
+  qwen-local:   {tier: local,    pool: local-gpu,     family: qwen,   model: qwen-x, tools: true, context_limit: 32000}
+tiers:
+  strong:   [opus-plan, opus-api, gpt-high-api]
+  standard: [sonnet-plan, gpt-api]
+  light:    [mini-api]
+  local:    [qwen-local]
+fixed:
+  work: opus-plan
+  review: gpt-high-api

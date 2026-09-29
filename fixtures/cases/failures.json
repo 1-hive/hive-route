@@ -1,0 +1,514 @@
+[
+ {
+  "name": "RT5 outage moves to another route in the tier",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "outage"
+    }
+   ]
+  },
+  "expect": {
+   "tier": "strong",
+   "route_id": "opus-api",
+   "rejected": [
+    "opus-plan"
+   ]
+  }
+ },
+ {
+  "name": "RT5 outage with no other route in the tier takes the table's upgrade",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "mini-api",
+     "tier": "light",
+     "class": "outage"
+    }
+   ]
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "standard",
+   "computed_tier": "light",
+   "rules": [
+    "RT3"
+   ]
+  }
+ },
+ {
+  "name": "RT5 outage with nowhere to go waits",
+  "table": "../../examples/1-hive.yaml",
+  "state": {
+   "pools": {
+    "chatgpt-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "outage"
+    }
+   ]
+  },
+  "expect": {
+   "decision": "wait",
+   "wait_until": "2026-09-29T15:00:00Z"
+  }
+ },
+ {
+  "name": "RT5 capacity marks the pool at its limit",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "capacity",
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   ]
+  },
+  "expect": {
+   "route_id": "opus-api",
+   "rejected": [
+    "opus-plan"
+   ]
+  }
+ },
+ {
+  "name": "RT7 interrupted attempt keeps its route",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-api",
+     "tier": "strong",
+     "class": "interrupted"
+    }
+   ]
+  },
+  "expect": {
+   "route_id": "opus-api",
+   "rules": [
+    "RT7"
+   ]
+  }
+ },
+ {
+  "name": "RT7 truncated keeps its route",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-api",
+     "tier": "strong",
+     "class": "truncated"
+    }
+   ]
+  },
+  "expect": {
+   "route_id": "opus-api",
+   "rules": [
+    "RT7"
+   ]
+  }
+ },
+ {
+  "name": "RT7 yields to a recomputed tier",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "interrupted"
+    }
+   ]
+  },
+  "expect": {
+   "tier": "light",
+   "route_id": "mini-api",
+   "not_rules": [
+    "RT7"
+   ]
+  }
+ },
+ {
+  "name": "indeterminate is reconciled first",
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "indeterminate"
+    }
+   ]
+  },
+  "expect": {
+   "decision": "reconcile",
+   "rules": [
+    "RT5"
+   ]
+  }
+ },
+ {
+  "name": "reconciled indeterminate keeps its route",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    },
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-api",
+     "tier": "strong",
+     "class": "indeterminate",
+     "reconciled": true
+    }
+   ]
+  },
+  "expect": {
+   "route_id": "opus-api",
+   "rules": [
+    "RT7"
+   ]
+  }
+ },
+ {
+  "name": "reassign moves off the previous route",
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "reassign",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "stalled"
+    }
+   ]
+  },
+  "expect": {
+   "decision": "wait",
+   "rejected": [
+    "opus-plan"
+   ]
+  }
+ },
+ {
+  "name": "RT3 local may run one tier up rather than wait",
+  "state": {
+   "pools": {
+    "local-gpu": {
+     "in_flight": 2
+    },
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "digest",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "light",
+   "computed_tier": "local",
+   "route_id": "mini-api",
+   "rules": [
+    "RT3"
+   ]
+  }
+ },
+ {
+  "name": "RT3 waits until the earliest pool frees up",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 300,
+       "basis": "measured",
+       "resets_at": "2026-10-01T00:00:00Z"
+      }
+     }
+    },
+    "claude-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "wait",
+   "tier": "light",
+   "wait_until": "2026-09-29T15:00:00Z",
+   "rules": [
+    "RT3"
+   ]
+  }
+ },
+ {
+  "name": "standard does not upgrade to strong",
+  "state": {
+   "pools": {
+    "claude-plan": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    },
+    "openai-api": {
+     "limited_until": "2026-09-29T15:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "plan",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "wait",
+   "tier": "standard",
+   "wait_until": "2026-09-29T15:00:00Z"
+  }
+ },
+ {
+  "name": "a budget too small for the attempt waits until it resets",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 290,
+       "basis": "measured",
+       "resets_at": "2026-10-01T00:00:00Z"
+      }
+     }
+    },
+    "claude-plan": {
+     "limited_until": "2026-10-02T00:00:00Z"
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "wait",
+   "tier": "light",
+   "wait_until": "2026-10-01T00:00:00Z"
+  }
+ }
+]

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/request-v1.schema.json",
+  "title": "hive-route routing request, format 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task", "attempt", "facts"],
+  "properties": {
+    "task": {"type": "string", "minLength": 1},
+    "attempt": {"type": "string", "minLength": 1},
+    "project": {"type": "string", "minLength": 1},
+    "reason": {"enum": ["new", "restart", "reassign"]},
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["work", "review", "plan", "consult", "triage", "digest"]},
+        "specification": {"enum": ["explicit", "partial", "goal_only"]},
+        "verification": {"enum": ["independent", "weak", "none"]},
+        "scope": {"enum": ["single", "few", "many"]},
+        "consequence": {"enum": ["reversible", "costly"]},
+        "leverage": {"type": "integer", "minimum": 0}
+      }
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family"],
+      "properties": {
+        "family": {"type": "string", "minLength": 1},
+        "tier": {"enum": ["local", "light", "standard", "strong"]}
+      }
+    },
+    "hint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "reason"],
+      "properties": {
+        "tier": {"enum": ["local", "light", "standard", "strong"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_id", "reason", "by"],
+      "properties": {
+        "route_id": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "by": {"type": "string", "minLength": 1}
+      }
+    },
+    "context_tokens": {"type": "integer", "minimum": 0},
+    "tools_needed": {"type": "boolean"},
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_tokens", "output_tokens"],
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "max_attempt_usd": {"type": "number", "exclusiveMinimum": 0},
+    "task_usage": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "usd": {"type": "number", "minimum": 0},
+          "tokens": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt", "route_id", "tier", "class"],
+        "properties": {
+          "attempt": {"type": "string", "minLength": 1},
+          "route_id": {"type": "string", "minLength": 1},
+          "tier": {"enum": ["local", "light", "standard", "strong"]},
+          "class": {
+            "enum": ["outage", "capacity", "truncated", "missing_info", "failed_check",
+                     "stalled", "indeterminate", "interrupted"]
+          },
+          "pool": {"type": "string", "minLength": 1},
+          "limited_until": {"type": "string", "format": "date-time"},
+          "reconciled": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

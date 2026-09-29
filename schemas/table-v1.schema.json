@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/table-v1.schema.json",
+  "title": "hive-route route table, format 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "pools",
+    "routes",
+    "tiers"
+  ],
+  "properties": {
+    "format": {
+      "const": "hive-route.table/1"
+    },
+    "version": {
+      "type": [
+        "integer",
+        "string"
+      ]
+    },
+    "soft_threshold": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "prefer": {
+      "enum": [
+        "order",
+        "cost",
+        "headroom"
+      ]
+    },
+    "kind_floor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work": {
+          "$ref": "#/$defs/tier"
+        },
+        "review": {
+          "$ref": "#/$defs/tier"
+        },
+        "plan": {
+          "$ref": "#/$defs/tier"
+        },
+        "consult": {
+          "$ref": "#/$defs/tier"
+        },
+        "triage": {
+          "$ref": "#/$defs/tier"
+        },
+        "digest": {
+          "$ref": "#/$defs/tier"
+        }
+      }
+    },
+    "leverage_threshold": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "unknown_facts": {
+      "const": "conservative"
+    },
+    "fact_defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "specification": {
+          "enum": [
+            "explicit",
+            "partial",
+            "goal_only"
+          ]
+        },
+        "verification": {
+          "enum": [
+            "independent",
+            "weak",
+            "none"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "single",
+            "few",
+            "many"
+          ]
+        },
+        "consequence": {
+          "enum": [
+            "reversible",
+            "costly"
+          ]
+        },
+        "leverage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "author_tier": {
+          "$ref": "#/$defs/tier"
+        }
+      }
+    },
+    "context_margin": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "allow_upgrade_on_wait": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tier"
+      },
+      "uniqueItems": true
+    },
+    "indeterminate_retry": {
+      "type": "boolean"
+    },
+    "scorer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route",
+        "mode"
+      ],
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "enum": [
+            "shadow",
+            "live"
+          ]
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "fixed": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(work|review|plan|consult|triage|digest)$": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "pools": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/pool"
+      }
+    },
+    "routes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/route"
+      }
+    },
+    "tiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "local": {
+          "$ref": "#/$defs/route_list"
+        },
+        "light": {
+          "$ref": "#/$defs/route_list"
+        },
+        "standard": {
+          "$ref": "#/$defs/route_list"
+        },
+        "strong": {
+          "$ref": "#/$defs/route_list"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "tier": {
+      "enum": [
+        "local",
+        "light",
+        "standard",
+        "strong"
+      ]
+    },
+    "route_list": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/id"
+      },
+      "uniqueItems": true
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "limits"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "metered",
+            "subscription",
+            "local"
+          ]
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/limit"
+          }
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "limit": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "usd",
+            "per"
+          ],
+          "properties": {
+            "usd": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "per": {
+              "$ref": "#/$defs/per"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tokens",
+            "per"
+          ],
+          "properties": {
+            "tokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "per": {
+              "$ref": "#/$defs/per"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "window"
+          ],
+          "properties": {
+            "window": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*[hd]$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "concurrent"
+          ],
+          "properties": {
+            "concurrent": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "per": {
+      "enum": [
+        "attempt",
+        "task",
+        "hour",
+        "day",
+        "week",
+        "month"
+      ]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tier",
+        "pool",
+        "family",
+        "model"
+      ],
+      "properties": {
+        "tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "pool": {
+          "$ref": "#/$defs/id"
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "harness": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tool_mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context_limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "price": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "in",
+            "out"
+          ],
+          "properties": {
+            "in": {
+              "type": "number",
+              "minimum": 0
+            },
+            "out": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}
