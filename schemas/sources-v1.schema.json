@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/sources-v1.schema.json",
+  "title": "hive-route usage sources, format 1: where a deployment's pool usage and route qualifications are read from",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "pools"],
+  "properties": {
+    "format": {"const": "hive-route.sources/1"},
+    "fresh_minutes": {"type": "number", "exclusiveMinimum": 0},
+    "max_age_days": {"type": "number", "exclusiveMinimum": 0},
+    "qualifications": {"type": "string", "minLength": 1},
+    "pools": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reader", "paths"],
+          "properties": {
+            "reader": {"enum": ["claude-stream", "codex-sessions"]},
+            "paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          }
+        }
+      }
+    }
+  }
+}

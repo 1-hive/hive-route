@@ -11,10 +11,11 @@ from pathlib import Path
 
 from . import __version__
 from . import log as routelog
-from .canonical import format_time
+from .canonical import format_time, parse_time
 from .decide import decide
 from .errors import RouteError
 from .table import load_table
+from .usage import collect, load_sources
 
 
 def _read_json(arg: str) -> dict:
@@ -26,6 +27,15 @@ def _read_json(arg: str) -> dict:
     if not isinstance(obj, dict):
         raise RouteError("INPUT_INVALID", f"{arg}: not a JSON object")
     return obj
+
+
+def _as_of(arg: str | None) -> datetime:
+    if not arg:
+        return datetime.now(UTC)
+    try:
+        return parse_time(arg)
+    except ValueError as e:
+        raise RouteError("INPUT_INVALID", f"--as-of: {e}") from e
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -40,7 +50,9 @@ def _parser() -> argparse.ArgumentParser:
     d = sub.add_parser("decide", help="choose the tier and route for one attempt")
     d.add_argument("table")
     d.add_argument("request", help="request JSON file, or - for stdin")
-    d.add_argument("--state", help="state JSON file (default: no usage known, nothing qualified)")
+    src = d.add_mutually_exclusive_group()
+    src.add_argument("--state", help="state JSON file (default: no usage known, nothing qualified)")
+    src.add_argument("--sources", help="build the state now from this sources file (§7)")
     d.add_argument("--mode", choices=["live", "fixed"],
                    help="default: the log's latest route.mode_set, else live")
     d.add_argument("--log", help="append the decision to this JSONL log")
@@ -49,6 +61,12 @@ def _parser() -> argparse.ArgumentParser:
     m.add_argument("mode", choices=["live", "fixed"])
     m.add_argument("table")
     m.add_argument("--log", required=True)
+
+    s = sub.add_parser("state", help="build the usage and qualification state from a sources file")
+    s.add_argument("table")
+    s.add_argument("sources")
+    s.add_argument("--as-of", help="the state's time (default: now)")
+    s.add_argument("--notes", action="store_true", help="print where each pool's usage came from")
 
     r = sub.add_parser("replay", help="recompute every decision in a log")
     r.add_argument("log")
@@ -79,8 +97,12 @@ def _run(args: argparse.Namespace) -> int:
     if args.cmd == "decide":
         t = load_table(args.table)
         request = _read_json(args.request)
-        now = {"as_of": format_time(datetime.now(UTC))}
-        state = _read_json(args.state) if args.state else now
+        if args.state:
+            state = _read_json(args.state)
+        elif args.sources:
+            state, _ = collect(t, load_sources(args.sources), datetime.now(UTC))
+        else:
+            state = {"as_of": format_time(datetime.now(UTC))}
         mode = args.mode or (routelog.current_mode(args.log) if args.log else None) or "live"
         decision = decide(request, t, state, mode)
         if args.log:
@@ -91,6 +113,15 @@ def _run(args: argparse.Namespace) -> int:
     if args.cmd == "mode":
         ev = routelog.set_mode(args.log, args.mode, load_table(args.table))
         print(f"seq {ev['seq']}: mode {args.mode}, table {ev['data']['table']}")
+        return 0
+
+    if args.cmd == "state":
+        t = load_table(args.table)
+        now = _as_of(args.as_of)
+        state, notes = collect(t, load_sources(args.sources), now)
+        print(json.dumps(state, indent=2))
+        if args.notes:
+            print(json.dumps(notes, indent=2), file=sys.stderr)
         return 0
 
     if args.cmd == "replay":

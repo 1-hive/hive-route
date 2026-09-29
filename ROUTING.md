@@ -195,12 +195,14 @@ Operator overrides (RT1) work in every mode.
 The router needs each pool's usage against its limits. By pool kind:
 
 - **Metered:** gateway logs give tokens and cost per request, tagged with actor, task and route. RT2 checks an attempt's maximum cost against the remaining budget; the gateway's budgets are the hard stop. Gateway figures are reconciled against provider invoices, and an estimate is never recorded as a settled charge.
-- **Subscription:** estimated from gateway logs or harness session files (e.g. via AgentsView). The provider's limit responses are the ground truth and override the estimate.
+- **Subscription:** the providers report the share of each window used, and the harnesses write those reports into their output: Claude Code's stream-json output (`rate_limit_event`: utilization and reset time per window, `status: rejected` at a limit) and Codex's session files (`token_count` events with `rate_limits`). The router reads the latest report (`hive-route state`, below). A report is `measured` while fresh (the sources file's `fresh_minutes`, default 30) and `estimated` after that, since usage can only have grown; once its window has reset it is `unknown`. A limit response sets `limited_until`. AgentsView, or the gateway's logs where there is one, gives tokens and cost per session, for attributing usage to tasks and routes.
 - **Local:** queue length and concurrent requests.
 
-Every usage figure carries `usage_basis`: `measured` (from gateway logs), `estimated` (e.g. subscription usage from session files), or `unknown`. An `unknown` figure is never replaced with zero. For every kind, usage covers all attempts, including failed, indeterminate ones, reviews and consultations.
+Every usage figure carries `usage_basis`: `measured` (from gateway logs, or a fresh provider report), `estimated` (e.g. subscription usage from session files), or `unknown`. An `unknown` figure is never replaced with zero. For every kind, usage covers all attempts, including failed, indeterminate ones, reviews and consultations.
 
 **State shape.** For each pool, `limited_until` (set from a provider's limit response or a `capacity` failure), `in_flight` (local pools), and `usage` keyed by limit: `usd/<per>` and `tokens/<per>` for metered pools (in USD or tokens), `window/<w>` for subscription windows (as a share of the window, 0 to 1, since the amounts are unknown), each with `used`, `basis` and optionally `resets_at`. A limit is at its end when `used` reaches its amount; a metered budget also blocks an attempt whose maximum cost exceeds what remains.
+
+**Where the state comes from.** `hive-route state TABLE SOURCES` builds it, and `hive-route decide --sources SOURCES` builds it for each decision. The sources file (`schemas/sources-v1.schema.json`) is deployment data: per pool, the readers and paths to read (`claude-stream`, `codex-sessions`), `fresh_minutes`, and the qualifications file the canary runner keeps (§3). The built state is logged with each decision, so replay needs nothing else.
 
 **Placement is a deployment choice.** The router can run privately next to one agent (the Omega architecture's default) or be shared by a hive. Sharing is what lets a hive spread several agents across one subscription's limits. Either way, agents never hold provider keys, and usage is counted where the agent can't change it.
 
@@ -315,7 +317,7 @@ A hive on API keys only lists metered pools and sets `prefer: cost`. A hive on s
 
 1. **Core library and CLI:** route table schema, pools, `decide()`, rule fixtures, JSONL log. **Done** (2026-09-29): package `hiveroute`, CLI `hive-route` (`check`, `decide`, `mode`, `replay`); `fixed` mode included, since step 4 needs it.
 2. **Gateway:** config generated from the route table; per-actor keys; request tagging; retries and fallbacks off; budget enforcement tested.
-3. **Usage tracking** for all three pool kinds.
+3. **Usage tracking** for all three pool kinds. **Subscriptions done** (2026-09-29): `hiveroute.usage`, `hive-route state`, `decide --sources`. Metered pools wait for a gateway (step 2); local pools for a served model.
 4. **Launcher integration,** starting in `fixed` mode to capture a baseline.
 5. **Canaries and drift detection;** then switch to `live`.
 6. **Scorer** in shadow mode; live once replay supports it.
@@ -329,7 +331,7 @@ A hive on API keys only lists metered pools and sets `prefer: cost`. A hive on s
 | Step | Can start | Waits for |
 |---|---|---|
 | 2. Gateway | no | A metered pool. With only subscriptions, §8 says direct mode. |
-| 3. Usage tracking | partly | Subscription usage can only be estimated (e.g. AgentsView, not yet installed); limit responses are the ground truth. |
+| 3. Usage tracking | **done** for subscriptions (2026-09-29) | Window shares come from worker streams (Claude plan) and Codex session files (ChatGPT plan). Interactive Claude sessions don't write reports, so between worker runs the Claude reading goes stale and is marked `estimated`. AgentsView v0.44.0 is installed for per-task tokens and cost. |
 | 4. Launcher integration | **done** (2026-09-29) | `1-hive/tools/launch-task.sh` asks the router for every attempt, in `fixed` mode, logging to `~/work/1hive/route-log.jsonl`; the table is `1-hive/deploy/route-table.yaml`. |
 | 5. Canaries | needs a starter set | The hive's past tasks take hours, use shared containers and ports, and draw on the same plan as live work; canaries need small tasks and off-hours runs. |
 | 6. Scorer | no | A served local model, and replay (R9). |
