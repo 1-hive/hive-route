@@ -86,6 +86,16 @@ def record_decision(path: str | Path, table: Table, request: dict, state: dict, 
                                "state": state, "decision": decision})
 
 
+def record_shadow(path: str | Path, table: Table, request: dict, state: dict,
+                  decision: dict) -> dict:
+    """A shadow table's decision (§6): logged and replayed, never acted on."""
+    with open_log(path) as w:
+        w.ensure_table(table)
+        return w.append("route.shadow_decided", {"table": table.pin, "mode": "live",
+                                                 "request": request, "state": state,
+                                                 "decision": decision})
+
+
 def record_scored(path: str | Path, table: Table, scored: dict) -> dict:
     """The scorer's estimates for one attempt (§4.3). Not replayed: a model's output."""
     with open_log(path) as w:
@@ -111,7 +121,7 @@ def replay(path: str | Path) -> tuple[int, list[str]]:
             if t.pin != ev["data"]["pin"]:
                 problems.append(f"{where}: table content gives {t.pin}, logged {ev['data']['pin']}")
             tables[ev["data"]["pin"]] = t
-        elif ev["type"] in ("route.decided", "route.waiting"):
+        elif ev["type"] in ("route.decided", "route.waiting", "route.shadow_decided"):
             d = ev["data"]
             table = tables.get(d["table"])
             if table is None:

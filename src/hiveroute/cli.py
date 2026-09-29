@@ -15,6 +15,7 @@ from .canary import qualify, set_lesson
 from .canonical import format_time, parse_time
 from .decide import decide
 from .errors import RouteError
+from .evaluate import agentsview_usage, load_events, report, shadow, whatif
 from .observe import CODEX_ROOT, find_manifests, observe
 from .scorer import apply, score
 from .table import load_table
@@ -59,6 +60,8 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--mode", choices=["live", "fixed"],
                    help="default: the log's latest route.mode_set, else live")
     d.add_argument("--log", help="append the decision to this JSONL log")
+    d.add_argument("--shadow-table", help="also decide with this table (live mode) and log it "
+                   "as route.shadow_decided; nothing acts on it")
     d.add_argument("--task-text", help="the task's text, for the scorer (§4.3) when the table "
                    "has one and an unknown fact could lower the tier")
 
@@ -104,6 +107,18 @@ def _parser() -> argparse.ArgumentParser:
     cl.add_argument("lesson")
     cl.add_argument("--sources", required=True)
     cl.add_argument("--log", required=True)
+
+    w = sub.add_parser("whatif", help="re-decide every logged request under another table")
+    w.add_argument("log")
+    w.add_argument("table")
+    w.add_argument("--json", action="store_true")
+
+    rp = sub.add_parser("report", help="attempts by kind, facts, tier and route, with outcomes")
+    rp.add_argument("log")
+    rp.add_argument("--events", help="the record's events as JSONL (`hive events`), or -")
+    rp.add_argument("--agentsview", metavar="ROOT",
+                    help="add output tokens per task from AgentsView, for task folders under ROOT")
+    rp.add_argument("--json", action="store_true")
 
     r = sub.add_parser("replay", help="recompute every decision in a log")
     r.add_argument("log")
@@ -158,6 +173,11 @@ def _run(args: argparse.Namespace) -> int:
         decision = decide(request, t, state, mode)
         if args.log:
             routelog.record_decision(args.log, t, request, state, mode, decision)
+        if args.shadow_table:
+            st = load_table(args.shadow_table)
+            sd = shadow(request, st, state)
+            if args.log:
+                routelog.record_shadow(args.log, st, request, state, sd)
         print(json.dumps(decision, indent=2))
         return 0 if decision["decision"] == "route" else 3
 
@@ -211,6 +231,43 @@ def _run(args: argparse.Namespace) -> int:
         if e["stopped"]:
             return 6
         return 0 if e["status"] == "qualified" else 5
+
+    if args.cmd == "whatif":
+        r = whatif(args.log, load_table(args.table))
+        if args.json:
+            print(json.dumps(r, indent=2))
+            return 0
+        print(f"{r['decisions']} decisions, {r['changed']} would change")
+        for k, n in r["tiers"].items():
+            print(f"  tier  {k}: {n}")
+        for c in r["changes"]:
+            print(f"  {c['attempt']}: " + (c.get("error") or f"{c['before']}  ->  {c['after']}"))
+        return 0
+
+    if args.cmd == "report":
+        usage = None
+        if args.agentsview:
+            import subprocess
+            out = subprocess.run(["agentsview", "session", "list", "--json", "--include-one-shot",
+                                  "--include-automated", "--include-children", "--limit", "500"],
+                                 capture_output=True, text=True)
+            if out.returncode != 0:
+                raise RouteError("INPUT_INVALID", f"agentsview: {out.stderr.strip()[:300]}")
+            usage = agentsview_usage(json.loads(out.stdout).get("sessions", []), args.agentsview)
+        r = report(args.log, load_events(args.events), usage)
+        if args.json:
+            print(json.dumps(r, indent=2))
+            return 0
+        for g in r["groups"]:
+            tok = f"  {g['output_tokens']:,} out-tokens" if g["output_tokens"] else ""
+            print(f"{g['profile']}\n    {g['route']} ({g['tier']}, {g['mode']}): "
+                  f"{g['attempts']} attempts, {g['accepted']}/{g['tasks']} tasks accepted, "
+                  f"{g['failed_reviews']} failed reviews{tok}")
+        for k, n in r["scorer"].items():
+            print(f"scorer estimate {k}: {n}")
+        for p in r["proposals"]:
+            print(f"proposal: {p}")
+        return 0
 
     if args.cmd == "replay":
         checked, problems = routelog.replay(args.log)
