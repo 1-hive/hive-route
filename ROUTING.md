@@ -330,7 +330,7 @@ A hive on API keys only lists metered pools and sets `prefer: cost`. A hive on s
 |---|---|---|
 | 2. Gateway | no | A metered pool. With only subscriptions, §8 says direct mode. |
 | 3. Usage tracking | partly | Subscription usage can only be estimated (e.g. AgentsView, not yet installed); limit responses are the ground truth. |
-| 4. Launcher integration | yes, between tasks | It changes `1-hive/tools/launch-task.sh`, which the chief of staff uses; do it while no task is running and tell the chief of staff. In `fixed` mode it only makes today's models explicit. |
+| 4. Launcher integration | **done** (2026-09-29) | `1-hive/tools/launch-task.sh` asks the router for every attempt, in `fixed` mode, logging to `~/work/1hive/route-log.jsonl`; the table is `1-hive/deploy/route-table.yaml`. |
 | 5. Canaries | needs a starter set | The hive's past tasks take hours, use shared containers and ports, and draw on the same plan as live work; canaries need small tasks and off-hours runs. |
 | 6. Scorer | no | A served local model, and replay (R9). |
 | 7. Record events | no | The amendments in §9.1. |
