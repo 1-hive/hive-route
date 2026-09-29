@@ -24,6 +24,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from . import quals
 from .canonical import parse_time
 from .errors import RouteError
 from .log import open_log, read
@@ -78,18 +79,17 @@ def _demote(qualifications: str | None, route_id: str, route_pin: str, note: str
     """Set a qualified route back to candidate. Returns whether anything changed."""
     if not qualifications:
         return False
-    p = Path(os.path.expanduser(qualifications))
-    if not p.exists():
+    if not quals.path_of(qualifications).exists():
         return False
-    quals = json.loads(p.read_text())
-    q = quals.get(route_id)
-    if not q or q.get("status") != "qualified" or q.get("route_pin") != route_pin:
-        return False
-    q.update(status="candidate", demoted=note)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(quals, indent=2) + "\n")
-    tmp.replace(p)
-    return True
+
+    def change(q: dict) -> bool:
+        e = q.get(route_id)
+        if not e or e.get("status") != "qualified" or e.get("route_pin") != route_pin:
+            return False
+        e.update(status="candidate", demoted=note)
+        return True
+
+    return quals.update(qualifications, change)
 
 
 def observe(manifests: list[str], log: str, qualifications: str | None = None,

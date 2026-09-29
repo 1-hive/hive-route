@@ -19,7 +19,6 @@ logged as ``route.canary_recorded``.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import shutil
 import subprocess
@@ -29,6 +28,7 @@ from pathlib import Path
 
 import yaml
 
+from . import quals
 from .canonical import digest, format_time
 from .errors import RouteError
 from .log import open_log
@@ -174,13 +174,7 @@ def qualify(table: Table, route_id: str, suite_path: str, sources: dict, log: st
              "results": [{k: r[k] for k in ("case", "passed", "harness_exit", "seconds",
                                              "observed_models", "work")} for r in results]}
 
-    qpath = Path(os.path.expanduser(sources["qualifications"]))
-    quals = json.loads(qpath.read_text()) if qpath.exists() else {}
-    quals[route_id] = entry
-    qpath.parent.mkdir(parents=True, exist_ok=True)
-    tmp = qpath.with_suffix(".tmp")
-    tmp.write_text(json.dumps(quals, indent=2) + "\n")
-    tmp.replace(qpath)
+    quals.update(sources["qualifications"], lambda q: q.__setitem__(route_id, entry))
 
     with open_log(log) as w:
         w.ensure_table(table)
@@ -192,17 +186,16 @@ def qualify(table: Table, route_id: str, suite_path: str, sources: dict, log: st
 
 def set_lesson(route_id: str, lesson: str, sources: dict, log: str) -> dict:
     """Replace a route's lesson with an operator's, and log it."""
-    qpath = Path(os.path.expanduser(sources.get("qualifications", "")))
-    if not qpath.is_file():
+    if not sources.get("qualifications") or not quals.path_of(sources["qualifications"]).is_file():
         raise RouteError("INPUT_INVALID", "no qualifications file")
-    quals = json.loads(qpath.read_text())
-    if route_id not in quals:
-        raise RouteError("INPUT_INVALID", f"{route_id!r} has no canary result")
-    quals[route_id]["lesson"] = lesson
-    tmp = qpath.with_suffix(".tmp")
-    tmp.write_text(json.dumps(quals, indent=2) + "\n")
-    tmp.replace(qpath)
-    e = quals[route_id]
+
+    def change(q: dict) -> dict:
+        if route_id not in q:
+            raise RouteError("INPUT_INVALID", f"{route_id!r} has no canary result")
+        q[route_id]["lesson"] = lesson
+        return q[route_id]
+
+    e = quals.update(sources["qualifications"], change)
     with open_log(log) as w:
         w.append("route.canary_recorded", {"route_id": route_id, **{
             k: e[k] for k in ("route_pin", "status", "suite", "suite_pin", "kinds", "passed",
