@@ -106,3 +106,20 @@ def test_manifest_from_decision(tmp_path, capsys):
     m = json.loads(capsys.readouterr().out)
     assert (m["route_id"], m["model"], m["harness"]) == ("opus-plan", "claude-opus-5-5",
                                                           "claude-code")
+
+
+def test_harness_aux_models_are_not_drift(tmp_path, capsys):
+    root = tmp_path / "codex"
+    root.mkdir()
+    cwd = str(tmp_path / "task")
+    (root / "s.jsonl").write_text(
+        json.dumps({"type": "session_meta", "payload": {"cwd": cwd}}) + "\n"
+        + json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.6-sol"}}) + "\n"
+        + json.dumps({"type": "turn_context", "payload": {"model": "codex-auto-review"}}) + "\n")
+    mf = manifest(tmp_path, "t.review.0", "gpt-sol-plan", tmp_path / "codex-0.log", "codex")
+    s = tmp_path / "sources.yaml"
+    s.write_text(json.dumps({"format": "hive-route.sources/1", "harnesses": {
+        "codex": {"argv": ["codex"], "aux_models": ["codex-auto-review"]}}}))
+    log = tmp_path / "log.jsonl"
+    assert main(["observe", str(log), mf, "--codex-root", str(root), "--sources", str(s)]) == 0
+    assert main(["observe", str(log), mf, "--codex-root", str(root)]) == 4  # without it: drift

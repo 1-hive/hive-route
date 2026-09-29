@@ -157,7 +157,8 @@ def qualify(table: Table, route_id: str, suite_path: str, sources: dict, log: st
         results.append(run_case(route_id, route, c, root, harnesses[route["harness"]], base,
                                 codex_root))
     npass = sum(r["passed"] for r in results)
-    drift = sorted({m for r in results for m in r["observed_models"] if m != route["model"]})
+    allowed = {route["model"], *harnesses[route["harness"]].get("aux_models", ())}
+    drift = sorted({m for r in results for m in r["observed_models"] if m not in allowed})
     needed = suite.get("pass_fraction", 1.0) * len(results)
     status = ("qualified" if results and not stopped and npass >= needed and not drift
               else "candidate")

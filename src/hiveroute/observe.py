@@ -93,9 +93,10 @@ def _demote(qualifications: str | None, route_id: str, route_pin: str, note: str
 
 
 def observe(manifests: list[str], log: str, qualifications: str | None = None,
-            codex_root: str = CODEX_ROOT) -> list[dict]:
+            codex_root: str = CODEX_ROOT, aux: dict | None = None) -> list[dict]:
     """Check each attempt's reported models against its route. Returns the drift events
-    written; an attempt already checked for drift is not logged twice."""
+    written; an attempt already checked for drift is not logged twice. ``aux`` maps a
+    harness to models it uses for itself (the sources file's ``aux_models``)."""
     seen = {e["data"]["attempt"] for e in read(log) if e["type"] == "route.drift_detected"}
     written = []
     for path in manifests:
@@ -103,7 +104,9 @@ def observe(manifests: list[str], log: str, qualifications: str | None = None,
         if m["attempt"] in seen:
             continue
         observed = observed_models(m, codex_root)
-        drifted = sorted(x for x in observed if x != m["model"])
+        # A harness's own auxiliary models (e.g. Codex's approval reviewer) aren't drift.
+        allowed = {m["model"], *(aux or {}).get(m["harness"], ())}
+        drifted = sorted(x for x in observed if x not in allowed)
         if not drifted:
             continue
         with open_log(log) as w:

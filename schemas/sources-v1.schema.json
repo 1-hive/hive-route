@@ -82,6 +82,14 @@
           },
           "stdin": {
             "type": "boolean"
+          },
+          "aux_models": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Models the harness uses for itself, not for the route (e.g. Codex's approval reviewer); not drift."
           }
         }
       }

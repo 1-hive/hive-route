@@ -219,9 +219,11 @@ def _run(args: argparse.Namespace) -> int:
         return 0
 
     if args.cmd == "observe":
-        quals = load_sources(args.sources).get("qualifications") if args.sources else None
+        src = load_sources(args.sources) if args.sources else {}
+        aux = {h: set(c.get("aux_models", ())) for h, c in src.get("harnesses", {}).items()}
         since = datetime.now(UTC) - timedelta(days=args.since_days)
-        events = observe(find_manifests(args.manifests, since), args.log, quals, args.codex_root)
+        events = observe(find_manifests(args.manifests, since), args.log,
+                         src.get("qualifications"), args.codex_root, aux)
         for ev in events:
             d = ev["data"]
             print(f"drift: {d['attempt']} on {d['route_id']}: pinned {d['pinned_model']}, "
