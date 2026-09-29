@@ -34,9 +34,12 @@ def _reason(rule: str, note: str, tier: str | None = None) -> dict:
 def resolve_facts(request: dict, table: Table) -> dict:
     given = request["facts"]
     facts = {"kind": {"value": given["kind"], "source": "supplied"}}
+    estimated = request.get("estimated_facts", {})
     for name in FACTS:
         if name in given:
             facts[name] = {"value": given[name], "source": "supplied"}
+        elif name in estimated:
+            facts[name] = {"value": estimated[name], "source": "estimated"}
         else:
             facts[name] = {"value": table.fact_default(name), "source": "default"}
     return facts

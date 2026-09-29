@@ -16,6 +16,7 @@ from .canonical import format_time, parse_time
 from .decide import decide
 from .errors import RouteError
 from .observe import CODEX_ROOT, find_manifests, observe
+from .scorer import apply, score
 from .table import load_table
 from .usage import collect, load_sources
 
@@ -58,6 +59,8 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--mode", choices=["live", "fixed"],
                    help="default: the log's latest route.mode_set, else live")
     d.add_argument("--log", help="append the decision to this JSONL log")
+    d.add_argument("--task-text", help="the task's text, for the scorer (§4.3) when the table "
+                   "has one and an unknown fact could lower the tier")
 
     m = sub.add_parser("mode", help="record a mode change in the log")
     m.add_argument("mode", choices=["live", "fixed"])
@@ -138,6 +141,20 @@ def _run(args: argparse.Namespace) -> int:
         else:
             state = {"as_of": format_time(datetime.now(UTC))}
         mode = args.mode or (routelog.current_mode(args.log) if args.log else None) or "live"
+        if args.task_text:
+            try:
+                text = Path(args.task_text).read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                raise RouteError("INPUT_INVALID", f"--task-text: {e}") from e
+            scored = score(t, request, text)
+            if scored:
+                # What the estimates would do to the tier, logged in either scorer mode.
+                with_est = decide(apply(request, {**scored, "mode": "live"}), t, state, "live")
+                scored["tier_with_estimates"] = with_est["computed_tier"]
+                scored["tier_without"] = decide(request, t, state, "live")["computed_tier"]
+                request = apply(request, scored)
+                if args.log:
+                    routelog.record_scored(args.log, t, scored)
         decision = decide(request, t, state, mode)
         if args.log:
             routelog.record_decision(args.log, t, request, state, mode, decision)

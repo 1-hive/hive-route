@@ -23,6 +23,17 @@
         "leverage": {"type": "integer", "minimum": 0}
       }
     },
+    "estimated_facts": {
+      "description": "Facts the scorer estimated (§4.3), used where a fact isn't supplied.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "specification": {"enum": ["explicit", "partial", "goal_only"]},
+        "verification": {"enum": ["independent", "weak", "none"]},
+        "scope": {"enum": ["single", "few", "many"]},
+        "consequence": {"enum": ["reversible", "costly"]}
+      }
+    },
     "author": {
       "type": "object",
       "additionalProperties": false,

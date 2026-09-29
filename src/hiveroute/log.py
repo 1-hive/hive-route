@@ -86,6 +86,13 @@ def record_decision(path: str | Path, table: Table, request: dict, state: dict, 
                                "state": state, "decision": decision})
 
 
+def record_scored(path: str | Path, table: Table, scored: dict) -> dict:
+    """The scorer's estimates for one attempt (§4.3). Not replayed: a model's output."""
+    with open_log(path) as w:
+        w.ensure_table(table)
+        return w.append("route.scored", {"table": table.pin, **scored})
+
+
 def set_mode(path: str | Path, mode: str, table: Table) -> dict:
     with open_log(path) as w:
         w.ensure_table(table)
