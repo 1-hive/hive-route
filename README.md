@@ -2,7 +2,7 @@
 
 A slim model-routing service for One Hive (release R8): named routes, one canary per route, detectable model switches. Works for hives on API keys, subscriptions, local models, or a mix.
 
-Status: built; 1-hive runs it live. To adopt it, read [`docs/ADOPTING.md`](docs/ADOPTING.md) and start from [`examples/launch.sh`](examples/launch.sh). See [`ROUTING.md`](ROUTING.md) (rev 4) and the one-pager [`ROUTING-onepager.pdf`](ROUTING-onepager.pdf).
+Status: built; 1-hive runs it live. To adopt it, read [`docs/ADOPTING.md`](docs/ADOPTING.md) and start from [`examples/launch.sh`](examples/launch.sh). See [`ROUTING.md`](ROUTING.md) (rev 5) and the one-pager [`ROUTING-onepager.pdf`](ROUTING-onepager.pdf).
 
 ```sh
 uv sync --extra test

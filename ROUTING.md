@@ -1,7 +1,14 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-09-30 · rev 4 (all build steps built; 1-hive runs `live`, with SingularityCompute first through the gateway)
+**Status:** built · 2026-09-30 · rev 5 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
+
+**Changes in rev 5:**
+- Routes through the gateway (`via_gateway`), for backends a harness can't call directly (self-hosted chat-completions servers) and for API keys; health-checked pools fall back when their endpoint is down (§7, §8).
+- Metered pools work end to end: spend from the gateway for the period its budget enforces, a gateway budget per period and per attempt, and a worker key agents use in place of the master key (§7, §8).
+- `canary accept`: an operator can qualify a route below the suite's bar, with a reason (§3).
+- A pool's readings from several sources are merged (§7); the launcher re-declares an actor when the router changes its model, as the record's SPEC §6.2 requires (§9).
+- The adoption guide (`docs/ADOPTING.md`) and a minimal launcher (`examples/launch.sh`).
 
 **Changes in rev 4:**
 - Every build step now has an implementation (§11): usage tracking from providers' own reports (§7), drift checks through attempt manifests and canaries with a starter suite (§3), the scorer on a local model (§4.3), shadow tables, what-if replay and an outcomes report (§4.6, §6), a generated gateway config (§8), and recording on the hive record through its amendment A1 (§9.1).
@@ -66,7 +73,7 @@ A route may serve a tier only after it passes a **canary**: a small fixed set of
 - **Qualification expires** when the model underneath a route changes without the table changing. The router detects this by comparing the model id each response reports with the pinned id; a mismatch triggers `route.drift_detected` and moves the route back to `candidate`.
 - **Canaries are cheap by design:** a handful of tasks per route, rerun only on a change.
 
-**Implementation.** `hive-route canary run TABLE ROUTE --suite DIR --sources FILE --log LOG` runs a suite (`schemas/suite-v1.schema.json`) on one route: each case copies its starting files into a scratch folder, starts the route's harness with the command in the sources file's `harnesses` section, then runs the case's **check from the suite directory** against the folder, so the attempt can't pass by editing its tests. The result (status, route pin, suite pin, per-case results, lesson) goes to the qualifications file, which the state reads (§7), and to the log as `route.canary_recorded`; `canary lesson` replaces the lesson with an operator's. `--max-usage` stops before a case if the route's pool is past that share of a window, since canaries draw on the same pools as live work. `canaries/starter` is the shared starter suite: a bug fix, a function from a spec, a change across files, and two reviews (one change with a bug, one without), each with a check validated against a reference solution.
+**Implementation.** `hive-route canary run TABLE ROUTE --suite DIR --sources FILE --log LOG` runs a suite (`schemas/suite-v1.schema.json`) on one route: each case copies its starting files into a scratch folder, starts the route's harness with the command in the sources file's `harnesses` section, then runs the case's **check from the suite directory** against the folder, so the attempt can't pass by editing its tests. The result (status, route pin, suite pin, per-case results, lesson) goes to the qualifications file, which the state reads (§7), and to the log as `route.canary_recorded`; `canary lesson` replaces the lesson with an operator's, and `canary accept` lets an operator qualify a candidate below the suite's bar; the entry records who, why and at what score, holds only for the route's current pin, and a later run replaces it. `--max-usage` stops before a case if the route's pool is past that share of any limit (the share RT6 uses), since canaries draw on the same pools as live work. `canaries/starter` is the shared starter suite: a bug fix, a function from a spec, a change across files, and two reviews (one change with a bug, one without), each with a check validated against a reference solution.
 
 **Drift, as built.** A launcher writes an **attempt manifest** (`schemas/attempt-v1.schema.json`; `hive-route manifest` makes one from a decision) next to each attempt's output. `hive-route observe LOG MANIFESTS…` reads the models the provider reported for each attempt (Claude Code: the stream's assistant messages; Codex: the session files for the attempt's folder) and logs `route.drift_detected` once per attempt when one differs from the route's model, sending the route back to `candidate`. A harness's own auxiliary models (the sources file's `aux_models`, e.g. Codex's `codex-auto-review` approval reviewer) are not drift.
 
@@ -208,9 +215,11 @@ Operator overrides (RT1) work in every mode.
 
 The router needs each pool's usage against its limits. By pool kind:
 
-- **Metered:** gateway logs give tokens and cost per request, tagged with actor, task and route. RT2 checks an attempt's maximum cost against the remaining budget; the gateway's budgets are the hard stop. Gateway figures are reconciled against provider invoices, and an estimate is never recorded as a settled charge.
+- **Metered:** the `gateway-spend` reader takes the pool's spend from the gateway's logs (tag `pool:<id>`) for the period the gateway's own budget enforces, falling back to calendar periods. RT2 checks an attempt's maximum cost against what remains; the gateway's budgets (per period, and per attempt) are the hard stop. Gateway figures are its price-map estimates: reconcile them against provider invoices, and never record one as a settled charge.
 - **Subscription:** the providers report the share of each window used, and the harnesses write those reports into their output: Claude Code's stream-json output (`rate_limit_event`: utilization and reset time per window, `status: rejected` at a limit) and Codex's session files (`token_count` events with `rate_limits`). The router reads the latest report (`hive-route state`, below). A report is `measured` while fresh (the sources file's `fresh_minutes`, default 30) and `estimated` after that, since usage can only have grown; once its window has reset it is `unknown`. A limit response sets `limited_until`. AgentsView, or the gateway's logs where there is one, gives tokens and cost per session, for attributing usage to tasks and routes.
-- **Local:** queue length and concurrent requests.
+- **Local:** concurrent requests; an `http-health` reader marks a self-hosted pool at a limit while its endpoint doesn't answer, so its tier falls back.
+
+A pool can list several readers; their readings are merged (every limit any of them reports, and the latest `limited_until`).
 
 Every usage figure carries `usage_basis`: `measured` (from gateway logs, or a fresh provider report), `estimated` (e.g. subscription usage from session files), or `unknown`. An `unknown` figure is never replaced with zero. For every kind, usage covers all attempts, including failed, indeterminate ones, reviews and consultations.
 
@@ -287,6 +296,8 @@ LiteLLM is the default path. The router still works without it (**direct mode**:
 
 Result and review events carry the attempt's usage with `route_id` and `pool` (an extension field on the record's existing events), so usage can be attributed per route. With the gateway, a usage instrument fills usage from gateway logs instead of workers reporting it.
 
+**Actors' declarations.** The record requires an actor to re-declare when its configuration changes (hive-record SPEC §6.2). A routed actor's model can change at every attempt, so a launcher re-declares it (`actor.declared`, signed with the actor's own key) before an attempt whose harness or model differs from its declaration, with `model_route` set to `<route_id>: <model> (<effort>)`. `route.decided` stays the exact per-attempt record; the declaration reflects the actor's latest launch.
+
 ### 9.1 Routing on the record: amendment A1
 
 The record froze as SPEC v1.0 on 2026-09-28 with the `route.` prefix reserved, so routing entered it as a numbered amendment: **hive-record A1** (2026-09-29, SPEC Appendix D; core legality table 1.1.0; tag `spec-v1.0-a1`). It admits six event types on the `hive` entity, with no refs, conditions or effects, so routing never touches task state: `route.table_pinned`, `route.mode_set` (class `instrument` or `operator`), `route.decided`, `route.waiting`, `route.canary_recorded`, `route.drift_detected` (class `instrument`). Task ids are in `data`, not the envelope.
@@ -358,13 +369,13 @@ Every step is built (2026-09-29); what's left is operational (§11.1).
 
 **Live since 2026-09-30** (route log seq 38; routing recorded on the record through A1, as the `router` instrument).
 
-**Pools:** a Claude Pro plan (Claude Code), a ChatGPT plan (Codex), SingularityCompute (self-hosted, through the hive gateway: LiteLLM 1.103.0, user service `hive-llm-gateway` on 127.0.0.1:4000, `1-hive/deploy/gateway-up.sh`) and the host's GPU (Ollama, `qwen3:8b`, for the scorer in shadow mode). Table `1-hive/deploy/route-table.yaml` v7 (strong: Opus high, then gpt-6-astra high; standard: DeepSeek on SingularityCompute, Opus medium, Sonnet, gpt-5.6-sol medium; light: Qwen on SingularityCompute, Sonnet low, gpt-5.6-sol low); SingularityCompute is listed first in its tiers (`prefer: order`), backed up by the plans.
+**Pools:** a Claude Pro plan (Claude Code), a ChatGPT plan (Codex), SingularityCompute (self-hosted, through the hive gateway: LiteLLM 1.103.0, user service `hive-llm-gateway` on 127.0.0.1:4000, `1-hive/deploy/gateway-up.sh`) and the host's GPU (Ollama, `qwen3:8b`, for the scorer in shadow mode). An Anthropic API key is the fourth pool (metered: $10/month and $5/attempt while testing), last in the strong and standard tiers. Table `1-hive/deploy/route-table.yaml` v9 (strong: Opus high, gpt-6-astra high, API Opus; standard: DeepSeek on SingularityCompute, Opus medium, Sonnet, gpt-5.6-sol medium, API Sonnet 5.5; light: Qwen on SingularityCompute, Sonnet low, gpt-5.6-sol low); SingularityCompute is listed first in its tiers (`prefer: order`), backed up by the plans.
 
 **Qualifications** (starter suite): every route in the table passed 5/5 except sc-deepseek-v4, which passed 4/5 (it accepted a trailing tab in the strict input-validation case) and was accepted by the operator (`canary accept`): self-hosted, fast, cheap to retry. sc-gpt-oss-120b and sc-minimax-m3 also passed 4/5 and were removed rather than accepted. haiku-plan failed 5/5: Claude Code's auto permission mode refuses its edits. Qwen is slow (5–8 minutes per small task); DeepSeek and gpt-oss finish the suite in about two minutes. Codex can't drive chat-completions models here (its `apply_patch` is freeform-only), so SingularityCompute routes run on Claude Code.
 
 **Effect:** tasks without facts still route strong (Opus first); the chief of staff lowers a task's tier by supplying facts (`ROUTE_FACTS` at launch), which sends light work to SingularityCompute first.
 
-**Next:** gather outcomes and tune with `report` and `whatif`; decide whether self-hosted routes may qualify at 4/5 (a failed attempt there costs little and an independent check catches it); turn the scorer live once replay supports it.
+**Next:** gather outcomes from real tasks (cheap ones: SingularityCompute and the light tiers) and tune with `report` and `whatif`; turn the scorer live once replay supports it; then a pilot with another hive.
 
 **Deferred, each with its trigger:**
 
