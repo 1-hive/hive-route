@@ -161,14 +161,19 @@ def env_value(key_env: str | None, env_file: str | None) -> str | None:
 
 
 def check_health(spec: dict, now: datetime) -> Reading:
-    """``http-health``: a pool is down while none of its URLs answers 2xx. A down pool is
+    """``http-health``: a pool is down while none of its URLs answers 2xx (each is tried
+    twice). A down pool is
     at a limit for ``down_minutes`` (default 5), so the router picks another route in the
     tier (or waits) instead of starting an attempt that fails as an outage."""
     import urllib.error
     import urllib.request
     key = env_value(spec.get("key_env"), spec.get("env_file"))
     errors = []
-    for url in spec["paths"]:
+    # Each URL is tried twice, a second apart: one dropped probe isn't an outage.
+    for url in [u for u in spec["paths"] for _ in range(2)]:
+        if errors:
+            import time
+            time.sleep(1)
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"} if key else {})
         try:
             with urllib.request.urlopen(req, timeout=spec.get("timeout_seconds", 5)) as r:
