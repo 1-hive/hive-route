@@ -1,6 +1,6 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** agreed, in build · 2026-09-29 · rev 4 (build steps 2–8 built; 1-hive runs `fixed` mode with usage, drift checks and the scorer in shadow)
+**Status:** built · 2026-09-30 · rev 4 (all build steps built; 1-hive runs `live`, with SingularityCompute first through the gateway)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
 
 **Changes in rev 4:**
@@ -348,17 +348,17 @@ Every step is built (2026-09-29); what's left is operational (§11.1).
 7. **Record events:** hive-record A1 and `hive-route record` (§9.1).
 8. **Shadow tables and tuning:** `decide --shadow-table`, `whatif`, `report` (§4.6, §6).
 
-### 11.1 Where 1-hive stands (2026-09-29)
+### 11.1 Where 1-hive stands (2026-09-30)
 
-1-hive's capacity is one Claude Pro plan (chief of staff, workers, interactive sessions) and one ChatGPT plan (Codex), plus the host's GPU, which now serves `qwen3:8b` through Ollama (a user service on 127.0.0.1:11434). The table is `1-hive/deploy/route-table.yaml` (v3: opus/sonnet/haiku and gpt-5.6-sol at high/medium/low effort, a route per tier in each family; `qwen-local` for the scorer); `examples/1-hive.yaml` mirrors it.
+**Live since 2026-09-30** (route log seq 38; routing recorded on the record through A1, as the `router` instrument).
 
-**Running now:** `1-hive/tools/launch-task.sh` asks the router for every attempt, in `fixed` mode (today's models, now explicit: the baseline), with pool usage from `deploy/route-sources.yaml`, so a pool at its limit waits instead of starting a worker that fails. It writes an attempt manifest, checks earlier attempts for drift, passes the task's text to the scorer (shadow) and optional facts, hint and failure class from the chief of staff (`ROUTE_FACTS`, `ROUTE_HINT`, `ROUTE_LAST_CLASS`, `ROUTE_REASON`), and starts whichever harness the router picks. Decisions go to `~/work/1hive/route-log.jsonl`. AgentsView v0.44.0 gives tokens per task for `report`.
+**Pools:** a Claude Pro plan (Claude Code), a ChatGPT plan (Codex), SingularityCompute (self-hosted, through the hive gateway: LiteLLM 1.103.0, user service `hive-llm-gateway` on 127.0.0.1:4000, `1-hive/deploy/gateway-up.sh`) and the host's GPU (Ollama, `qwen3:8b`, for the scorer in shadow mode). Table `1-hive/deploy/route-table.yaml` v6; SingularityCompute is listed first in its tiers (`prefer: order`), backed up by the plans.
 
-**Left to do, in order:**
-1. **Canaries:** run the starter suite on all six routes; `--max-usage` keeps them off a busy plan.
-2. **Record:** the operator applies A1 (`hive.policy_changed` to the `spec-v1.0-a1` policy pin) and registers the `router` actor; the launcher then records routing on its own.
-3. **Live:** once the routes a tier needs are qualified, `hive-route mode live`. With no facts supplied, tasks still route strong; the chief of staff lowers tiers by supplying facts.
-4. **Tune:** after enough tasks, `report` and `whatif` against a proposed table; turn the scorer live once its estimates are shown to match outcomes.
+**Qualifications** (starter suite): opus-plan, sonnet-plan, sonnet-low, gpt-sol-high/plan/low and sc-qwen3.8-27b passed 5/5. sc-deepseek-v4, sc-gpt-oss-120b and sc-minimax-m3 passed 4/5, each failing only the strict input-validation case, so they stay candidates under the all-pass bar. haiku-plan failed 5/5: Claude Code's auto permission mode refuses its edits. Qwen is slow (5–8 minutes per small task); DeepSeek and gpt-oss finish the suite in about two minutes. Codex can't drive chat-completions models here (its `apply_patch` is freeform-only), so SingularityCompute routes run on Claude Code.
+
+**Effect:** tasks without facts still route strong (Opus first); the chief of staff lowers a task's tier by supplying facts (`ROUTE_FACTS` at launch), which sends light work to SingularityCompute first.
+
+**Next:** gather outcomes and tune with `report` and `whatif`; decide whether self-hosted routes may qualify at 4/5 (a failed attempt there costs little and an independent check catches it); turn the scorer live once replay supports it.
 
 **Deferred, each with its trigger:**
 
