@@ -97,3 +97,26 @@ def budget_notes(table: Table) -> list[str]:
                          else f"{pid}: {amount} {unit} per {limit['per']} -> enforced by the "
                          "router (RT2), with max_tokens as the hard stop")
     return notes
+
+
+DURATIONS = {"day": "1d", "week": "7d", "month": "30d"}
+
+
+def budgets(table: Table) -> list[dict]:
+    """The gateway's hard stops for metered pools: one budget on the tag ``pool:<id>`` per
+    period limit (LiteLLM tag budgets). Tested on LiteLLM 1.103.0: requests are refused once
+    logged spend passes the budget, but spend is logged just after each request, so calls
+    already in flight can pass it. The router's own check (RT2, with the per-attempt limit)
+    comes first; these catch what it can't. LiteLLM's periods are rolling (30d for a month),
+    the router's are calendar periods."""
+    out = []
+    for pid, pool in table.pools.items():
+        if pool["kind"] != "metered":
+            continue
+        for limit in pool["limits"]:
+            if "usd" in limit and limit["per"] in DURATIONS:
+                out.append({"name": f"pool:{pid}", "max_budget": limit["usd"],
+                            "budget_duration": DURATIONS[limit["per"]],
+                            "description": f"hive-route: pool {pid}, {limit['usd']} USD per "
+                                           f"{limit['per']} (generated from the route table)"})
+    return out
