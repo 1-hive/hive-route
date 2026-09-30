@@ -5,14 +5,14 @@
 # in its tiers (prefer: order), backed up by the paid plans. `fixed` is the launcher before
 # routing: the baseline to measure against (ROUTING.md §6).
 format: hive-route.table/1
-version: 8
+version: 9
 prefer: order        # SingularityCompute (self-hosted) first in each tier; the paid plans back it up
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
   chatgpt-plan: {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
   local-gpu:    {kind: local, limits: [{concurrent: 1}]}
   # Anthropic API, pay per call through the gateway; last in its tiers, a test budget for now.
-  anthropic-api: {kind: metered, limits: [{usd: 10, per: month}, {usd: 1, per: attempt}], gateway_key_env: ANTHROPIC_API_KEY}
+  anthropic-api: {kind: metered, limits: [{usd: 10, per: month}, {usd: 5, per: attempt}], gateway_key_env: ANTHROPIC_API_KEY}
   # SingularityCompute (self-hosted). Chat completions only, so every harness reaches it through
   # the hive gateway (LiteLLM on 127.0.0.1:4000), which drops the two harness fields it rejects.
   singularity:  {kind: local, limits: [{concurrent: 4}], gateway_key_env: SINGULARITY_API_KEY, gateway_drop_params: [client_metadata, safeguards]}
