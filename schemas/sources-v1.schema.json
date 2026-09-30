@@ -64,6 +64,10 @@
               "type": "string",
               "minLength": 1,
               "description": "A KEY=value file holding key_env, for readers that call an authenticated endpoint."
+            },
+            "timeout_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
             }
           }
         }

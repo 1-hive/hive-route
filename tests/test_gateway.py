@@ -57,5 +57,35 @@ def test_ollama_route_derives_its_model(capsys):
 def test_budgets_for_metered_pools():
     from hiveroute.gateway import budgets
     b = budgets(mixed_with_gateway())
-    assert b and all(x["name"].startswith("pool:") and x["budget_duration"] in ("1d", "7d", "30d")
+    assert b and all(x["name"].startswith("pool:") and x["budget_duration"] in ("1d", "1w", "1mo")
                      for x in b)
+
+
+def test_each_period_gets_its_own_budget_tag():
+    from hiveroute.gateway import budgets
+    data = yaml.safe_load(yaml.safe_dump(mixed_with_gateway().data))
+    pid = next(p for p, v in data["pools"].items() if v["kind"] == "metered")
+    data["pools"][pid]["limits"] = [{"usd": 5, "per": "day"}, {"usd": 100, "per": "month"}]
+    t = Table.from_data(data)
+    names = [b["name"] for b in budgets(t)]
+    assert f"pool:{pid}:day" in names and f"pool:{pid}:month" in names
+    assert len(names) == len(set(names))
+    m = next(m for m in litellm_config(t)["model_list"] if t.routes[m["model_name"]]["pool"] == pid)
+    assert {f"pool:{pid}:day", f"pool:{pid}:month"} <= set(m["litellm_params"]["tags"])
+
+
+def test_attempt_budget_only_for_metered_gateway_routes():
+    from hiveroute.gateway import attempt_budget
+    data = yaml.safe_load(yaml.safe_dump(mixed_with_gateway().data))
+    pid = next(p for p, v in data["pools"].items() if v["kind"] == "metered")
+    data["pools"][pid]["limits"] = [{"usd": 50, "per": "month"}, {"usd": 5, "per": "attempt"}]
+    rid = next(r for r, v in data["routes"].items() if v["pool"] == pid)
+    data["routes"][rid]["via_gateway"] = True
+    t = Table.from_data(data)
+    d = {"decision": "route", "via_gateway": True, "pool": pid, "attempt": "t.worker.0",
+         "route_id": rid}
+    assert attempt_budget(t, d) == {"name": "attempt:t.worker.0", "max_budget": 5,
+                                    "budget_duration": "1mo",
+                                    "description": f"hive-route: attempt t.worker.0 on {rid}"}
+    assert attempt_budget(t, {**d, "via_gateway": False}) is None
+    assert attempt_budget(t, {**d, "decision": "wait"}) is None

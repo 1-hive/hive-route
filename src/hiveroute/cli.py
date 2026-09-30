@@ -16,7 +16,7 @@ from .canonical import format_time, parse_time
 from .decide import decide
 from .errors import RouteError
 from .evaluate import agentsview_usage, load_events, report, shadow, whatif
-from .gateway import budget_notes, budgets, litellm_config
+from .gateway import attempt_budget, budget_notes, budgets, litellm_config
 from .observe import CODEX_ROOT, find_manifests, observe
 from .record import sync
 from .scorer import apply, score
@@ -130,6 +130,11 @@ def _parser() -> argparse.ArgumentParser:
     rc.add_argument("log")
     rc.add_argument("--hive-cmd", default="hive", help="the hive CLI (identity from HIVE_* env)")
     rc.add_argument("--dry-run", action="store_true", help="print the events instead")
+
+    ab = sub.add_parser("attempt-budget", help="the gateway tag budget that caps one attempt on "
+                        "a metered route (JSON), or nothing")
+    ab.add_argument("table")
+    ab.add_argument("decision", help="decision JSON file, or - for stdin")
 
     w = sub.add_parser("whatif", help="re-decide every logged request under another table")
     w.add_argument("log")
@@ -284,6 +289,12 @@ def _run(args: argparse.Namespace) -> int:
         if not args.dry_run:
             print(f"{posted} events recorded")
         return 7 if errors else 0
+
+    if args.cmd == "attempt-budget":
+        b = attempt_budget(load_table(args.table), _read_json(args.decision))
+        if b:
+            print(json.dumps(b))
+        return 0
 
     if args.cmd == "whatif":
         r = whatif(args.log, load_table(args.table))

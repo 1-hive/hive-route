@@ -201,33 +201,91 @@ def period_bounds(per: str, now: datetime) -> tuple[datetime, datetime] | None:
     return None
 
 
+GATEWAY_DURATIONS = {"day": "1d", "week": "1w", "month": "1mo"}
+
+
+def _gateway_get(base: str, path: str, key: str | None, timeout: float,
+                 body: dict | None = None) -> object:
+    import urllib.request
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    req = urllib.request.Request(base.rstrip("/") + path, data=data, headers=headers,
+                                 method="POST" if body is not None else "GET")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def gateway_period(base: str, key: str | None, tag: str, per: str, now: datetime,
+                   timeout: float) -> tuple[datetime, datetime] | None:
+    """The period the gateway's own budget on ``tag`` enforces: (start, reset), from the
+    budget's ``budget_reset_at`` and duration. None when there is no such budget."""
+    import urllib.error
+    try:
+        info = _gateway_get(base, "/tag/info", key, timeout, {"names": [tag]})
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    bt = ((info or {}).get(tag) or {}).get("litellm_budget_table") or {}
+    if not bt.get("budget_reset_at"):
+        return None
+    reset = parse_time(bt["budget_reset_at"])
+    if per == "month":
+        prev_month = (reset.replace(day=1) - timedelta(days=1))
+        start = reset.replace(year=prev_month.year, month=prev_month.month,
+                              day=min(reset.day, prev_month.day))
+    else:
+        start = reset - timedelta(days=1 if per == "day" else 7)
+    return (start, reset) if start <= now < reset + timedelta(minutes=5) else None
+
+
 def read_gateway_spend(spec: dict, pid: str, limits: list[dict], now: datetime) -> Reading:
     """``gateway-spend``: a metered pool's spend in each period its limits name (day, week,
     month), from the gateway's spend logs by the tag ``pool:<pool>`` (LiteLLM
-    ``/global/spend/tags``). Spend is the gateway's price-map figure, not an invoice. A
-    period the gateway can't report stays unknown, and an unknown budget blocks the pool."""
-    import json as _json
+    ``/global/spend/tags``; the gateway's price-map figure, not an invoice). The period is
+    the one the gateway's own budget on ``pool:<pool>:<per>`` enforces (``gateway-config
+    --budgets``), so router and gateway agree on what remains; without such a budget, the
+    calendar period (UTC). A period the gateway can't report stays unknown, and an unknown
+    budget blocks the pool."""
     import urllib.error
     import urllib.parse
-    import urllib.request
     key = env_value(spec.get("key_env"), spec.get("env_file"))
-    r = Reading(observed_at=now, source=spec["paths"][0])
+    base = spec["paths"][0]
+    timeout = spec.get("timeout_seconds", 10)
+    r = Reading(observed_at=now, source=base)
     for limit in limits:
-        if "usd" not in limit or (b := period_bounds(limit["per"], now)) is None:
+        if "usd" not in limit or limit["per"] not in GATEWAY_DURATIONS:
             continue
+        per = limit["per"]
+        b = (gateway_period(base, key, f"pool:{pid}:{per}", per, now, timeout)
+             or period_bounds(per, now))
         start, reset = b
         q = urllib.parse.urlencode({"start_date": start.strftime("%Y-%m-%d"),
-                                    "end_date": (now + timedelta(days=1)).strftime("%Y-%m-%d")})
-        url = spec["paths"][0].rstrip("/") + "/global/spend/tags?" + q
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"} if key else {})
+                                    "end_date": (now + timedelta(days=1)).strftime("%Y-%m-%d"),
+                                    "tags": f"pool:{pid}"})
         try:
-            with urllib.request.urlopen(req, timeout=spec.get("timeout_seconds", 10)) as resp:
-                rows = _json.loads(resp.read()).get("spend_per_tag", [])
+            rows = _gateway_get(base, "/global/spend/tags?" + q, key, timeout)
+            rows = rows.get("spend_per_tag", []) if isinstance(rows, dict) else []
         except (urllib.error.URLError, OSError, ValueError):
             continue
         spend = sum(float(t.get("spend") or 0) for t in rows if t.get("name") == f"pool:{pid}")
-        r.windows[f"usd/{limit['per']}"] = (spend, reset)
+        r.windows[f"usd/{per}"] = (spend, reset)
     return r
+
+
+def merge_readings(readings: list[Reading]) -> Reading | None:
+    """One pool's readings from several sources, combined: every source's limits (the
+    newest reading wins for a limit two report), the latest limited_until, the newest
+    observation time."""
+    if not readings:
+        return None
+    rs = sorted(readings, key=lambda r: r.observed_at)
+    out = Reading(observed_at=rs[-1].observed_at, source="; ".join(r.source for r in rs)[:300])
+    for r in rs:
+        out.windows.update(r.windows)
+        if r.limited_until and (out.limited_until is None or r.limited_until > out.limited_until):
+            out.limited_until = r.limited_until
+    return out
 
 
 READERS = {"claude-stream": read_claude_stream, "codex-sessions": read_codex_sessions}
@@ -289,8 +347,7 @@ def collect(table: Table, sources: dict, now: datetime) -> tuple[dict, dict]:
                     else read_gateway_spend(s, pid, table.pools[pid]["limits"], now)
                     if s["reader"] == "gateway-spend"
                     else READERS[s["reader"]](s["paths"], since) for s in specs]
-        readings = [r for r in readings if r is not None]
-        latest = max(readings, key=lambda r: r.observed_at, default=None)
+        latest = merge_readings([r for r in readings if r is not None])
         entry = pool_state(table, pid, latest, now, fresh)
         if entry:
             pools[pid] = entry

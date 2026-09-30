@@ -33,7 +33,7 @@ from .canonical import digest, format_time
 from .errors import RouteError
 from .log import open_log
 from .observe import CODEX_ROOT, models_claude_stream, models_codex
-from .table import Table, limit_key, schema_error
+from .table import Table, schema_error
 from .usage import env_value
 
 
@@ -128,22 +128,20 @@ def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, 
 
 def pool_busy(table: Table, route_id: str, sources: dict, max_usage: float) -> str | None:
     """Why the route's pool is too busy for a canary now, or None. Canaries draw on the
-    same pools as live work, so they stop before a window passes ``max_usage``."""
+    same pools as live work, so they stop before any of the pool's limits passes
+    ``max_usage`` (as a share, the same one RT6 uses). Only the route's pool is read."""
+    from .decide import pool_view
     from .usage import collect
     pid = table.routes[route_id]["pool"]
-    state, _ = collect(table, sources, datetime.now(UTC))
+    now = datetime.now(UTC)
+    only = {**sources, "pools": {k: v for k, v in sources.get("pools", {}).items() if k == pid}}
+    state, _ = collect(table, only, now)
     p = state.get("pools", {}).get(pid, {})
     if "limited_until" in p:
         return f"pool {pid} at a limit until {p['limited_until']}"
-    # Window usage is already a share; metered usage is an amount, divided by its limit.
-    amounts = {limit_key(lim): lim.get("usd", lim.get("tokens")) for lim in table.pools[pid]["limits"]}
-    for key, u in p.get("usage", {}).items():
-        if u.get("used") is None:
-            continue
-        share = u["used"] / amounts[key] if not key.startswith("window/") and amounts.get(key) \
-            else u["used"]
-        if share >= max_usage:
-            return f"pool {pid} {key} at {share:.0%} (canaries stop at {max_usage:.0%})"
+    view = pool_view(pid, table, state, {"task": "canary", "attempt": "canary"}, now)
+    if view.fractions and max(view.fractions) >= max_usage:
+        return f"pool {pid} at {max(view.fractions):.0%} of a limit (canaries stop at {max_usage:.0%})"
     return None
 
 

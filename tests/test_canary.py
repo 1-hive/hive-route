@@ -123,8 +123,6 @@ def test_operator_accepts_a_candidate(tmp_path, capsys):
 
 
 def test_busy_check_uses_a_share_for_metered_pools(monkeypatch):
-    from datetime import UTC, datetime
-
     from hiveroute import canary
     from hiveroute.table import Table
     data = json.loads(json.dumps(TABLE.data))
@@ -132,10 +130,12 @@ def test_busy_check_uses_a_share_for_metered_pools(monkeypatch):
     data["routes"]["api-x"] = {"tier": "standard", "pool": "api", "family": "claude",
                                "model": "m", "price": {"in": 1, "out": 1}}
     t = Table.from_data(data)
+    used = {"v": 2.0}
 
     def fake_collect(table, sources, now):
         return {"as_of": "2026-09-30T00:00:00Z", "pools": {"api": {"usage": {
-            "usd/month": {"used": 2.0, "basis": "measured"}}}}}, {}
+            "usd/month": {"used": used["v"], "basis": "measured"}}}}}, {}
     monkeypatch.setattr("hiveroute.usage.collect", fake_collect)
     assert canary.pool_busy(t, "api-x", {}, 0.8) is None  # $2 of $10 is 20%
-    assert datetime.now(UTC)
+    used["v"] = 9.0
+    assert "90%" in canary.pool_busy(t, "api-x", {}, 0.8)  # $9 of $10

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import yaml
@@ -162,7 +162,8 @@ def metered_table() -> Table:
     return Table.from_data(data)
 
 
-def test_gateway_spend_measures_metered_budgets():
+def test_gateway_spend_measures_metered_budgets(monkeypatch):
+    monkeypatch.setattr(Spend, "spend", 12.5)
     srv = HTTPServer(("127.0.0.1", 0), Spend)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     t = metered_table()
@@ -177,7 +178,7 @@ def test_gateway_spend_measures_metered_budgets():
                                                    "verification": "independent", "scope": "many",
                                                    "consequence": "reversible", "leverage": 0}}
     assert decide(req, t, state, "live")["route_id"] == "api-big"  # $2 fits in the $7.50 left
-    Spend.spend = 19.0
+    monkeypatch.setattr(Spend, "spend", 19.0)
     state2, _ = collect(t, src, now)
     state2["routes"] = qualified(t)
     d = decide(req, t, state2, "live")  # $2 doesn't fit in the $1 left: wait for next month
@@ -196,3 +197,32 @@ def test_gateway_spend_unreachable_blocks_metered_pool():
                                                    "consequence": "reversible", "leverage": 0}}
     d = decide(req, t, state, "live")
     assert d["decision"] != "route" and any("unknown" in r for r in d["rejected"]["api-big"])
+
+
+def test_readings_from_several_sources_are_merged(tmp_path):
+    from hiveroute.usage import Reading, merge_readings
+    now = datetime(2026, 9, 30, 12, tzinfo=UTC)
+    spend = Reading(observed_at=now, source="spend",
+                    windows={"usd/month": (3.0, datetime(2026, 10, 1, tzinfo=UTC))})
+    health = Reading(observed_at=now, source="health",
+                     limited_until=now + timedelta(minutes=5))
+    m = merge_readings([health, spend])
+    assert m.windows == spend.windows and m.limited_until == health.limited_until
+
+
+def test_router_reads_the_gateways_own_budget_period(monkeypatch):
+    from hiveroute import usage
+    now = datetime(2026, 9, 30, 12, tzinfo=UTC)
+    calls = []
+
+    def fake_get(base, path, key, timeout, body=None):
+        calls.append(path)
+        if path == "/tag/info":
+            return {"pool:api:month": {"litellm_budget_table": {
+                "budget_reset_at": "2026-10-15T00:00:00Z", "budget_duration": "1mo"}}}
+        return {"spend_per_tag": [{"name": "pool:api", "spend": 4.0}]}
+    monkeypatch.setattr(usage, "_gateway_get", fake_get)
+    r = usage.read_gateway_spend({"paths": ["http://gw"]}, "api",
+                                 [{"usd": 10, "per": "month"}], now)
+    assert r.windows["usd/month"] == (4.0, datetime(2026, 10, 15, tzinfo=UTC))
+    assert "start_date=2026-09-15" in calls[1] and "tags=pool%3Aapi" in calls[1]
