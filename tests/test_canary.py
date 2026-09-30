@@ -42,7 +42,8 @@ def setup(tmp_path, mode: str) -> tuple[str, str, str]:
     sources.write_text(json.dumps({
         "format": "hive-route.sources/1", "qualifications": str(tmp_path / "q.json"),
         "canary_workdir": str(tmp_path / "work"),
-        "harnesses": {"claude-code": {"argv": [sys.executable, str(fake), "{model}", mode]}}}))
+        "harnesses": {"claude-code": {"argv": [sys.executable, str(fake), "{model}", mode],
+                                      "effort_args": ["--effort={effort}"]}}}))
     return str(suite), str(sources), str(tmp_path / "log.jsonl")
 
 
