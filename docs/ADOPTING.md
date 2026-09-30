@@ -84,6 +84,7 @@ Lessons from 1-hive (LiteLLM 1.103.0):
 - Codex and Claude Code each send a field such backends reject; list them in the pool's `gateway_drop_params` (`client_metadata`, `safeguards`).
 - Codex 0.158 only offers `apply_patch` as a freeform tool, which doesn't survive the translation, so it can't edit files there: run those routes on Claude Code.
 - LiteLLM reserves `model_info.tier`.
+- **Claude Code's auto permission mode runs its safety check on the session's model.** Routed to a slow or weak self-hosted model, the checks time out (actions refused) and a weaker model judges what's safe. 1-hive paused its self-hosted routes for agent work until agents run in a container; run such routes where a per-action check isn't needed, or don't route agentic Claude Code sessions to them.
 
 ## 6. Qualifying routes, and going live
 

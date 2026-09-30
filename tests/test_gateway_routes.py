@@ -86,8 +86,8 @@ def test_health_down_pool_waits_and_falls_back(tmp_path):
                                                    "verification": "independent", "scope": "many",
                                                    "consequence": "reversible", "leverage": 0}}
     d = decide(req, t, state, "live")
-    # the next standard route in listed order: the table's own SingularityCompute route
-    assert d["route_id"] == "sc-deepseek-v4" and "sc-big" in d["rejected"]
+    # the next standard route in listed order
+    assert d["route_id"] == BASE.data["tiers"]["standard"][0] and "sc-big" in d["rejected"]
 
 
 def test_gateway_config_drops_named_params_only():
