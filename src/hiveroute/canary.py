@@ -33,7 +33,7 @@ from .canonical import digest, format_time
 from .errors import RouteError
 from .log import open_log
 from .observe import CODEX_ROOT, models_claude_stream, models_codex
-from .table import Table, schema_error
+from .table import Table, limit_key, schema_error
 from .usage import env_value
 
 
@@ -135,9 +135,15 @@ def pool_busy(table: Table, route_id: str, sources: dict, max_usage: float) -> s
     p = state.get("pools", {}).get(pid, {})
     if "limited_until" in p:
         return f"pool {pid} at a limit until {p['limited_until']}"
+    # Window usage is already a share; metered usage is an amount, divided by its limit.
+    amounts = {limit_key(lim): lim.get("usd", lim.get("tokens")) for lim in table.pools[pid]["limits"]}
     for key, u in p.get("usage", {}).items():
-        if u.get("used") is not None and u["used"] >= max_usage:
-            return f"pool {pid} {key} at {u['used']:.0%} (canaries stop at {max_usage:.0%})"
+        if u.get("used") is None:
+            continue
+        share = u["used"] / amounts[key] if not key.startswith("window/") and amounts.get(key) \
+            else u["used"]
+        if share >= max_usage:
+            return f"pool {pid} {key} at {share:.0%} (canaries stop at {max_usage:.0%})"
     return None
 
 

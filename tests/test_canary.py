@@ -120,3 +120,22 @@ def test_operator_accepts_a_candidate(tmp_path, capsys):
     assert ev["status"] == "qualified" and ev["accepted"]["reason"] == "cheap to retry"
     assert main(["canary", "accept", TABLE_PATH, "opus-plan", "--by", "operator",
                  "--reason", "again", "--sources", sources, "--log", log]) == 2  # already qualified
+
+
+def test_busy_check_uses_a_share_for_metered_pools(monkeypatch):
+    from datetime import UTC, datetime
+
+    from hiveroute import canary
+    from hiveroute.table import Table
+    data = json.loads(json.dumps(TABLE.data))
+    data["pools"]["api"] = {"kind": "metered", "limits": [{"usd": 10, "per": "month"}]}
+    data["routes"]["api-x"] = {"tier": "standard", "pool": "api", "family": "claude",
+                               "model": "m", "price": {"in": 1, "out": 1}}
+    t = Table.from_data(data)
+
+    def fake_collect(table, sources, now):
+        return {"as_of": "2026-09-30T00:00:00Z", "pools": {"api": {"usage": {
+            "usd/month": {"used": 2.0, "basis": "measured"}}}}}, {}
+    monkeypatch.setattr("hiveroute.usage.collect", fake_collect)
+    assert canary.pool_busy(t, "api-x", {}, 0.8) is None  # $2 of $10 is 20%
+    assert datetime.now(UTC)
