@@ -323,6 +323,8 @@ def decide(request: dict, table: Table, state: dict, mode: str = "live") -> dict
         out.update(decision="route", route_id=rid, route_pin=table.route_pin(rid),
                    pool=route["pool"], model=route["model"], harness=route.get("harness"),
                    endpoint=route.get("endpoint"), effort=route.get("effort"))
+        if route.get("via_gateway"):  # only when set, so earlier logged decisions replay as they were
+            out["via_gateway"] = True
         return out
 
     # RT1: an operator override wins, in every mode.

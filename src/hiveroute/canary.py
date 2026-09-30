@@ -34,6 +34,7 @@ from .errors import RouteError
 from .log import open_log
 from .observe import CODEX_ROOT, models_claude_stream, models_codex
 from .table import Table, schema_error
+from .usage import env_value
 
 
 def load_suite(path: str | Path) -> tuple[Path, dict, str]:
@@ -60,7 +61,7 @@ def _fill(argv: list[str], values: dict) -> list[str]:
 
 
 def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, base: Path,
-             codex_root: str = CODEX_ROOT) -> dict:
+             codex_root: str = CODEX_ROOT, gateway: dict | None = None) -> dict:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     work = base / route_id / f"{case['id']}-{stamp}"
     work.parent.mkdir(parents=True, exist_ok=True)
@@ -69,9 +70,22 @@ def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, 
     else:
         work.mkdir()
     prompt = (root / case["prompt"]).read_text()
-    values = {"model": route["model"], "prompt": prompt, "cwd": str(work),
+    via = bool(route.get("via_gateway"))
+    # Through the gateway, the harness asks for the route's alias, its route_id (§8).
+    values = {"model": route_id if via else route["model"], "prompt": prompt, "cwd": str(work),
               "effort": route.get("effort") or ""}
+    env = dict(os.environ)
+    if via:
+        if not gateway:
+            raise RouteError("SOURCES_INVALID", f"{route_id} is via_gateway; no gateway section")
+        values.update(gateway_url=gateway["url"], key_env=gateway["key_env"],
+                      gateway_key=env_value(gateway["key_env"], gateway.get("env_file")) or "")
     argv = _fill(harness["argv"], values)
+    if via:
+        argv += _fill(harness.get("gateway_args", []), values)
+        env.update({k: v.format(**values) for k, v in harness.get("gateway_env", {}).items()})
+        if gateway["key_env"] not in env and values["gateway_key"]:
+            env[gateway["key_env"]] = values["gateway_key"]
     if route.get("effort"):
         if "effort_args" not in harness:
             raise RouteError("SOURCES_INVALID", f"harness for {route_id} can't set an effort")
@@ -82,7 +96,7 @@ def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, 
     t0 = time.monotonic()
     try:
         with open(output, "w") as out:
-            r = subprocess.run(argv, cwd=work, stdout=out, stderr=subprocess.STDOUT,
+            r = subprocess.run(argv, cwd=work, stdout=out, stderr=subprocess.STDOUT, env=env,
                                input=prompt if harness.get("stdin") else None,
                                text=True, timeout=timeout,
                                stdin=None if harness.get("stdin") else subprocess.DEVNULL)
@@ -155,9 +169,10 @@ def qualify(table: Table, route_id: str, suite_path: str, sources: dict, log: st
             if stopped:
                 break
         results.append(run_case(route_id, route, c, root, harnesses[route["harness"]], base,
-                                codex_root))
+                                codex_root, sources.get("gateway")))
     npass = sum(r["passed"] for r in results)
-    allowed = {route["model"], *harnesses[route["harness"]].get("aux_models", ())}
+    # A harness reports a gateway route by its alias, the route_id.
+    allowed = {route["model"], route_id, *harnesses[route["harness"]].get("aux_models", ())}
     drift = sorted({m for r in results for m in r["observed_models"] if m not in allowed})
     needed = suite.get("pass_fraction", 1.0) * len(results)
     status = ("qualified" if results and not stopped and npass >= needed and not drift

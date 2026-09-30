@@ -39,7 +39,8 @@
             "reader": {
               "enum": [
                 "claude-stream",
-                "codex-sessions"
+                "codex-sessions",
+                "http-health"
               ]
             },
             "paths": {
@@ -49,6 +50,19 @@
                 "type": "string",
                 "minLength": 1
               }
+            },
+            "key_env": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*$"
+            },
+            "down_minutes": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "env_file": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A KEY=value file holding key_env, for readers that call an authenticated endpoint."
             }
           }
         }
@@ -90,7 +104,44 @@
               "minLength": 1
             },
             "description": "Models the harness uses for itself, not for the route (e.g. Codex's approval reviewer); not drift."
+          },
+          "gateway_args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Arguments added for a via_gateway route; {gateway_url} and {key_env} are filled in."
+          },
+          "gateway_env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Environment for a via_gateway route; values may use {gateway_url} and {gateway_key}."
           }
+        }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "key_env"
+      ],
+      "description": "The hive's gateway, for routes with via_gateway (\u00a78).",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key_env": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]*$"
+        },
+        "env_file": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

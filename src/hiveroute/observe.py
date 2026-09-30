@@ -105,7 +105,8 @@ def observe(manifests: list[str], log: str, qualifications: str | None = None,
             continue
         observed = observed_models(m, codex_root)
         # A harness's own auxiliary models (e.g. Codex's approval reviewer) aren't drift.
-        allowed = {m["model"], *(aux or {}).get(m["harness"], ())}
+        # A harness reports a gateway route by its alias, the route_id (§8).
+        allowed = {m["model"], m["route_id"], *(aux or {}).get(m["harness"], ())}
         drifted = sorted(x for x in observed if x not in allowed)
         if not drifted:
             continue

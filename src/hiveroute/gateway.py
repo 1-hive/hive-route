@@ -18,7 +18,8 @@ Budgets are not generated: the gateway's budget features must be tested on the p
 version before they are relied on (§8). ``budget_notes`` lists what each metered pool's
 limits need.
 
-Subscription routes are left out unless asked for: passthrough of a subscription login
+Without a database (``database=False``) the gateway has only its master key: no
+per-actor keys and no spend logs. Subscription routes are left out unless asked for: passthrough of a subscription login
 is used only where the provider's terms allow it.
 """
 
@@ -36,7 +37,8 @@ def gateway_model(route: dict) -> str | None:
     return None
 
 
-def litellm_config(table: Table, include_subscription: bool = False) -> dict:
+def litellm_config(table: Table, include_subscription: bool = False,
+                   database: bool = True) -> dict:
     models = []
     for rid, route in table.routes.items():
         pool = table.pools[route["pool"]]
@@ -58,6 +60,8 @@ def litellm_config(table: Table, include_subscription: bool = False) -> dict:
             params["reasoning_effort"] = route["effort"]
         if route.get("max_output_tokens"):
             params["max_tokens"] = route["max_output_tokens"]
+        if pool.get("gateway_drop_params"):
+            params["additional_drop_params"] = list(pool["gateway_drop_params"])
         params["tags"] = [f"pool:{route['pool']}", f"tier:{route['tier']}", f"route:{rid}"]
         # LiteLLM reserves model_info.tier ("free"/"paid"), hence the route_ prefix.
         info = {"id": table.route_pin(rid), "route_tier": route["tier"],
@@ -74,7 +78,8 @@ def litellm_config(table: Table, include_subscription: bool = False) -> dict:
         "router_settings": {"num_retries": 0, "fallbacks": [], "context_window_fallbacks": [],
                             "content_policy_fallbacks": []},
         "general_settings": {"master_key": "os.environ/LITELLM_MASTER_KEY",
-                             "database_url": "os.environ/LITELLM_DATABASE_URL",
+                             **({"database_url": "os.environ/LITELLM_DATABASE_URL"}
+                                if database else {}),
                              "store_model_in_db": False},
     }
 

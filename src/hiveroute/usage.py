@@ -143,6 +143,44 @@ def read_codex_sessions(patterns: list[str], since: datetime, files: int = 20) -
     return best
 
 
+def env_value(key_env: str | None, env_file: str | None) -> str | None:
+    """A secret from the environment, or from a KEY=value file (never logged)."""
+    if not key_env:
+        return None
+    if key_env in os.environ:
+        return os.environ[key_env]
+    if env_file:
+        try:
+            for line in Path(os.path.expanduser(env_file)).read_text().splitlines():
+                k, _, v = line.partition("=")
+                if k.strip() == key_env:
+                    return v.strip()
+        except OSError:
+            return None
+    return None
+
+
+def check_health(spec: dict, now: datetime) -> Reading:
+    """``http-health``: a pool is down while none of its URLs answers 2xx. A down pool is
+    at a limit for ``down_minutes`` (default 5), so the router picks another route in the
+    tier (or waits) instead of starting an attempt that fails as an outage."""
+    import urllib.error
+    import urllib.request
+    key = env_value(spec.get("key_env"), spec.get("env_file"))
+    errors = []
+    for url in spec["paths"]:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"} if key else {})
+        try:
+            with urllib.request.urlopen(req, timeout=spec.get("timeout_seconds", 5)) as r:
+                if 200 <= r.status < 300:
+                    return Reading(observed_at=now, source=url)
+                errors.append(f"{url}: HTTP {r.status}")
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            errors.append(f"{url}: {e}")
+    return Reading(observed_at=now, source="; ".join(errors)[:300],
+                   limited_until=now + timedelta(minutes=spec.get("down_minutes", 5)))
+
+
 READERS = {"claude-stream": read_claude_stream, "codex-sessions": read_codex_sessions}
 
 
@@ -198,7 +236,8 @@ def collect(table: Table, sources: dict, now: datetime) -> tuple[dict, dict]:
     for pid, specs in sources.get("pools", {}).items():
         if pid not in table.pools:
             raise RouteError("SOURCES_INVALID", f"pools/{pid}: not a pool of the table")
-        readings = [READERS[s["reader"]](s["paths"], since) for s in specs]
+        readings = [check_health(s, now) if s["reader"] == "http-health"
+                    else READERS[s["reader"]](s["paths"], since) for s in specs]
         readings = [r for r in readings if r is not None]
         latest = max(readings, key=lambda r: r.observed_at, default=None)
         entry = pool_state(table, pid, latest, now, fresh)

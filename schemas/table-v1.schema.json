@@ -246,6 +246,15 @@
           "type": "string",
           "pattern": "^[A-Z_][A-Z0-9_]*$",
           "description": "The environment variable holding the pool's API key, for the gateway (§8)"
+        },
+        "gateway_drop_params": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Request fields the gateway drops, by name, for this pool's backend (e.g. harness-specific fields a chat-completions backend rejects); nothing else is dropped (§8)."
         }
       }
     },
@@ -396,6 +405,10 @@
           "type": "string",
           "minLength": 1,
           "description": "The provider-prefixed model the gateway calls, e.g. anthropic/claude-opus-5-5 (§8)"
+        },
+        "via_gateway": {
+          "type": "boolean",
+          "description": "The harness reaches this route through the hive's gateway, asking for the route_id as its model (§8); the gateway calls gateway_model at endpoint."
         }
       }
     }
