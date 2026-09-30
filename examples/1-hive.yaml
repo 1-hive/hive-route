@@ -5,7 +5,7 @@
 # in its tiers (prefer: order), backed up by the paid plans. `fixed` is the launcher before
 # routing: the baseline to measure against (ROUTING.md §6).
 format: hive-route.table/1
-version: 5
+version: 6
 prefer: order        # SingularityCompute (self-hosted) first in each tier; the paid plans back it up
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
@@ -23,7 +23,7 @@ routes:
   gpt-sol-low:  {tier: light,    pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: low, tools: true}
   sc-deepseek-v4:  {tier: standard, pool: singularity, family: deepseek, harness: claude-code, model: deepseek/deepseek-v4-flash-0731, gateway_model: custom_openai/deepseek/deepseek-v4-flash-0731, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
   sc-minimax-m3:   {tier: standard, pool: singularity, family: minimax,  harness: claude-code, model: minimax/minimax-m3, gateway_model: custom_openai/minimax/minimax-m3, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
-  sc-gpt-oss-120b: {tier: light,    pool: singularity, family: gpt-oss,  harness: codex,       model: openai/gpt-oss-120b, gateway_model: custom_openai/openai/gpt-oss-120b, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
+  sc-gpt-oss-120b: {tier: light,    pool: singularity, family: gpt-oss,  harness: claude-code, model: openai/gpt-oss-120b, gateway_model: custom_openai/openai/gpt-oss-120b, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
   sc-qwen3.8-27b:  {tier: light,    pool: singularity, family: qwen,     harness: claude-code, model: qwen/qwen3.8-27b, gateway_model: custom_openai/qwen/qwen3.8-27b, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
   qwen-local:   {tier: local,    pool: local-gpu,    family: qwen,   harness: ollama, endpoint: "http://127.0.0.1:11434", model: "qwen3:8b", tools: false}
 tiers:
