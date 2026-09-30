@@ -2,7 +2,7 @@
 
 A slim model-routing service for One Hive (release R8): named routes, one canary per route, detectable model switches. Works for hives on API keys, subscriptions, local models, or a mix.
 
-Status: every build step is built; 1-hive runs it in `fixed` mode. See [`ROUTING.md`](ROUTING.md) (rev 4) and the one-pager [`ROUTING-onepager.pdf`](ROUTING-onepager.pdf).
+Status: built; 1-hive runs it live. To adopt it, read [`docs/ADOPTING.md`](docs/ADOPTING.md) and start from [`examples/launch.sh`](examples/launch.sh). See [`ROUTING.md`](ROUTING.md) (rev 4) and the one-pager [`ROUTING-onepager.pdf`](ROUTING-onepager.pdf).
 
 ```sh
 uv sync --extra test
@@ -26,6 +26,7 @@ uv run pytest
 - `fixtures/`: one case per rule, each with its expected decision.
 - `canaries/starter/`: the shared starter canary suite.
 - `examples/1-hive.yaml`: 1-hive's table (mirrors `1-hive/deploy/route-table.yaml`).
+- `docs/ADOPTING.md`: how a hive adopts it; `examples/launch.sh`: a minimal launcher.
 - `docs/make-onepager.py`: builds the one-pager.
 
 Related: [hive-record](https://github.com/1-hive/hive-record), [1-hive](https://github.com/1-hive/1-hive).

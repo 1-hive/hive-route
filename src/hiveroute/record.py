@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -102,6 +103,17 @@ def emit_with_hive(type_: str, data: dict, key: str, hive_cmd: str = "hive") -> 
     return r.returncode == 0 or "IDEMPOTENCY_CONFLICT" in out, out
 
 
+ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+
+def record_refuses(data: dict) -> str | None:
+    """Why the record would refuse this summary's ids (its id syntax), or None."""
+    for k in ("task", "route_id", "pool", "suite"):
+        if k in data and not ID.match(str(data[k])):
+            return f"{k} {data[k]!r} isn't a record id"
+    return None
+
+
 def sync(log: str, emit=None, dry_run: bool = False) -> tuple[int, list[str]]:
     """Post every unrecorded entry. Returns (posted, errors); stops at the first error,
     so the record's order follows the log's."""
@@ -116,6 +128,13 @@ def sync(log: str, emit=None, dry_run: bool = False) -> tuple[int, list[str]]:
         if s is not None:
             type_, data = s
             key = f"route-{ev['seq']}-{data['log']['digest'][7:23]}"
+            why = record_refuses(data)
+            if why:  # it would only become a refusal on the record; the log keeps it in full
+                errors.append(f"seq {ev['seq']} {type_}: skipped, {why}")
+                done = ev["seq"]
+                if not dry_run:
+                    progress.write_text(f"{done}\n")
+                continue
             if dry_run:
                 print(json.dumps({"type": type_, "idempotency_key": key, "data": data}))
             else:

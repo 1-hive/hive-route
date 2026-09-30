@@ -288,7 +288,7 @@ def _run(args: argparse.Namespace) -> int:
             print(f"hive-route: record: {e}", file=sys.stderr)
         if not args.dry_run:
             print(f"{posted} events recorded")
-        return 7 if errors else 0
+        return 7 if any("skipped" not in e for e in errors) else 0
 
     if args.cmd == "attempt-budget":
         b = attempt_budget(load_table(args.table), _read_json(args.decision))

@@ -84,3 +84,17 @@ def test_sync_posts_once_and_stops_at_an_error(tmp_path, capsys):
     n, errors = sync(str(log2), fail_second)
     assert n == 1 and errors and "UNKNOWN_EVENT_TYPE" in errors[0]
     assert Path(str(log2) + ".recorded").read_text().strip() == "1"
+
+
+def test_sync_skips_what_the_record_would_refuse(tmp_path, capsys):
+    log = tmp_path / "log.jsonl"
+    assert main(["mode", "fixed", TABLE_PATH, "--log", str(log)]) == 0
+    req = tmp_path / "req.json"
+    req.write_text(json.dumps({"task": "Bad", "attempt": "Bad.worker.0", "facts": {"kind": "work"}}))
+    main(["decide", TABLE_PATH, str(req), "--log", str(log)])
+    capsys.readouterr()
+    posted = []
+    _, errors = sync(str(log), lambda t, d, k: (posted.append(t) or True, "ok"))
+    assert posted == ["route.table_pinned", "route.mode_set"]
+    assert len(errors) == 1 and "skipped" in errors[0]
+    assert Path(str(log) + ".recorded").read_text().strip() == "3"
