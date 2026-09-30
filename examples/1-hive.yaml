@@ -6,8 +6,9 @@
 # Version 2: a route per tier in each family, so a review (a different family, RT4)
 # has a route at every tier; effort is the lever within Codex's one model.
 # Version 3: a local model (Ollama on the host's GPU) for the scorer.
+# Version 4: sonnet-low replaces haiku-plan, whose edits Claude Code's auto permission mode refuses.
 format: hive-route.table/1
-version: 3
+version: 4
 prefer: headroom
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
@@ -18,13 +19,13 @@ routes:
   gpt-sol-high: {tier: strong,   pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: high, tools: true}
   sonnet-plan:  {tier: standard, pool: claude-plan,  family: claude, harness: claude-code, model: claude-sonnet-5, tools: true}
   gpt-sol-plan: {tier: standard, pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: medium, tools: true}
-  haiku-plan:   {tier: light,    pool: claude-plan,  family: claude, harness: claude-code, model: claude-haiku-4-5-20251001, tools: true}
+  sonnet-low:   {tier: light,    pool: claude-plan,  family: claude, harness: claude-code, model: claude-sonnet-5, effort: low, tools: true}
   gpt-sol-low:  {tier: light,    pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: low, tools: true}
   qwen-local:   {tier: local,    pool: local-gpu,    family: qwen,   harness: ollama, endpoint: "http://127.0.0.1:11434", model: "qwen3:8b", tools: false}
 tiers:
   strong:   [opus-plan, gpt-sol-high]
   standard: [sonnet-plan, gpt-sol-plan]
-  light:    [haiku-plan, gpt-sol-low]
+  light:    [sonnet-low, gpt-sol-low]
   local:    [qwen-local]
 # The scorer (§4.3) estimates unknown task facts on the local model; shadow: logged, not used.
 scorer: {route: qwen-local, mode: shadow, max_output_tokens: 800, timeout_s: 90}
