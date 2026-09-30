@@ -1,19 +1,19 @@
-# 1-hive as it runs on 2026-09-29: workers on Claude Code (Claude Pro plan), reviewers
-# on Codex (ChatGPT plan). No API keys and no local model yet, so every pool is a
-# subscription and the gateway is not used (direct mode, ROUTING.md §8).
-# `fixed` reproduces today's launcher: the baseline to measure against (§6).
-# This belongs in 1-hive/deploy once the launcher calls the router (build step 4).
-# Version 2: a route per tier in each family, so a review (a different family, RT4)
-# has a route at every tier; effort is the lever within Codex's one model.
-# Version 3: a local model (Ollama on the host's GPU) for the scorer.
-# Version 4: sonnet-low replaces haiku-plan, whose edits Claude Code's auto permission mode refuses.
+# 1-hive's route table (mirrors 1-hive/deploy/route-table.yaml; version history there).
+# Pools: a Claude Pro plan (Claude Code), a ChatGPT plan (Codex), SingularityCompute
+# (self-hosted models, reached through the hive gateway: LiteLLM, since they speak only chat
+# completions) and the host's GPU (Ollama, for the scorer). SingularityCompute is listed first
+# in its tiers (prefer: order), backed up by the paid plans. `fixed` is the launcher before
+# routing: the baseline to measure against (ROUTING.md §6).
 format: hive-route.table/1
-version: 4
-prefer: headroom
+version: 5
+prefer: order        # SingularityCompute (self-hosted) first in each tier; the paid plans back it up
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
   chatgpt-plan: {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
   local-gpu:    {kind: local, limits: [{concurrent: 1}]}
+  # SingularityCompute (self-hosted). Chat completions only, so every harness reaches it through
+  # the hive gateway (LiteLLM on 127.0.0.1:4000), which drops the two harness fields it rejects.
+  singularity:  {kind: local, limits: [{concurrent: 4}], gateway_key_env: SINGULARITY_API_KEY, gateway_drop_params: [client_metadata, safeguards]}
 routes:
   opus-plan:    {tier: strong,   pool: claude-plan,  family: claude, harness: claude-code, model: claude-opus-5-5, tools: true}
   gpt-sol-high: {tier: strong,   pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: high, tools: true}
@@ -21,15 +21,17 @@ routes:
   gpt-sol-plan: {tier: standard, pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: medium, tools: true}
   sonnet-low:   {tier: light,    pool: claude-plan,  family: claude, harness: claude-code, model: claude-sonnet-5, effort: low, tools: true}
   gpt-sol-low:  {tier: light,    pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: low, tools: true}
+  sc-deepseek-v4:  {tier: standard, pool: singularity, family: deepseek, harness: claude-code, model: deepseek/deepseek-v4-flash-0731, gateway_model: custom_openai/deepseek/deepseek-v4-flash-0731, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
+  sc-minimax-m3:   {tier: standard, pool: singularity, family: minimax,  harness: claude-code, model: minimax/minimax-m3, gateway_model: custom_openai/minimax/minimax-m3, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
+  sc-gpt-oss-120b: {tier: light,    pool: singularity, family: gpt-oss,  harness: codex,       model: openai/gpt-oss-120b, gateway_model: custom_openai/openai/gpt-oss-120b, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
+  sc-qwen3.8-27b:  {tier: light,    pool: singularity, family: qwen,     harness: claude-code, model: qwen/qwen3.8-27b, gateway_model: custom_openai/qwen/qwen3.8-27b, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
   qwen-local:   {tier: local,    pool: local-gpu,    family: qwen,   harness: ollama, endpoint: "http://127.0.0.1:11434", model: "qwen3:8b", tools: false}
 tiers:
   strong:   [opus-plan, gpt-sol-high]
-  standard: [sonnet-plan, gpt-sol-plan]
-  light:    [sonnet-low, gpt-sol-low]
+  standard: [sc-deepseek-v4, sc-minimax-m3, sonnet-plan, gpt-sol-plan]
+  light:    [sc-gpt-oss-120b, sc-qwen3.8-27b, sonnet-low, gpt-sol-low]
   local:    [qwen-local]
-# The scorer (§4.3) estimates unknown task facts on the local model; shadow: logged, not used.
 scorer: {route: qwen-local, mode: shadow, max_output_tokens: 800, timeout_s: 90}
-# fixed mode: the launcher's models before routing, the baseline (§6).
 fixed:
   work: opus-plan
   review: gpt-sol-plan

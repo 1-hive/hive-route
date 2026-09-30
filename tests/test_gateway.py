@@ -44,7 +44,7 @@ def test_missing_gateway_fields_are_errors():
 
 def test_ollama_route_derives_its_model(capsys):
     t = load_table(ROOT / "examples" / "1-hive.yaml")
-    [m] = litellm_config(t)["model_list"]
+    [m] = [m for m in litellm_config(t)["model_list"] if m["model_name"] == "qwen-local"]
     assert m["model_name"] == "qwen-local"
     assert m["litellm_params"]["model"] == "ollama_chat/qwen3:8b"
     assert m["litellm_params"]["api_base"] == "http://127.0.0.1:11434"
