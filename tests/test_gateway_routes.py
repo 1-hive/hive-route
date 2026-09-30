@@ -134,3 +134,65 @@ def test_canary_through_the_gateway(tmp_path, capsys):
                  "--sources", str(sources), "--log", str(tmp_path / "log.jsonl")]) == 0
     q = json.loads((tmp_path / "q.json").read_text())["sc-big"]
     assert q["status"] == "qualified" and q["results"][0]["observed_models"] == ["sc-big"]
+
+
+class Spend(BaseHTTPRequestHandler):
+    spend = 12.5
+
+    def do_GET(self):
+        body = json.dumps({"spend_per_tag": [{"name": "pool:api", "spend": Spend.spend},
+                                             {"name": "pool:other", "spend": 99}]}).encode()
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+def metered_table() -> Table:
+    data = json.loads(json.dumps(BASE.data))
+    data["pools"]["api"] = {"kind": "metered", "gateway_key_env": "API_KEY",
+                            "limits": [{"usd": 20, "per": "month"}, {"usd": 2, "per": "attempt"}]}
+    data["routes"]["api-big"] = {"tier": "standard", "pool": "api", "family": "claude",
+                                 "harness": "claude-code", "model": "m",
+                                 "gateway_model": "anthropic/m", "via_gateway": True,
+                                 "price": {"in": 3, "out": 15}, "tools": True}
+    data["tiers"]["standard"] = ["api-big"]
+    return Table.from_data(data)
+
+
+def test_gateway_spend_measures_metered_budgets():
+    srv = HTTPServer(("127.0.0.1", 0), Spend)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    t = metered_table()
+    src = {"format": "hive-route.sources/1", "pools": {"api": [
+        {"reader": "gateway-spend", "paths": [f"http://127.0.0.1:{srv.server_port}"]}]}}
+    now = datetime(2026, 9, 30, 12, tzinfo=UTC)
+    state, _ = collect(t, src, now)
+    assert state["pools"]["api"]["usage"] == {"usd/month": {
+        "used": 12.5, "basis": "measured", "resets_at": "2026-10-01T00:00:00Z"}}
+    state["routes"] = qualified(t)
+    req = {"task": "t", "attempt": "a", "facts": {"kind": "work", "specification": "partial",
+                                                   "verification": "independent", "scope": "many",
+                                                   "consequence": "reversible", "leverage": 0}}
+    assert decide(req, t, state, "live")["route_id"] == "api-big"  # $2 fits in the $7.50 left
+    Spend.spend = 19.0
+    state2, _ = collect(t, src, now)
+    state2["routes"] = qualified(t)
+    d = decide(req, t, state2, "live")  # $2 doesn't fit in the $1 left: wait for next month
+    assert d["decision"] == "wait" and d["wait_until"] == "2026-10-01T00:00:00Z"
+
+
+def test_gateway_spend_unreachable_blocks_metered_pool():
+    t = metered_table()
+    src = {"format": "hive-route.sources/1", "pools": {"api": [
+        {"reader": "gateway-spend", "paths": ["http://127.0.0.1:9"]}]}}
+    state, _ = collect(t, src, datetime.now(UTC))
+    assert state["pools"]["api"]["usage"]["usd/month"] == {"used": None, "basis": "unknown"}
+    state["routes"] = qualified(t)
+    req = {"task": "t", "attempt": "a", "facts": {"kind": "work", "specification": "partial",
+                                                   "verification": "independent", "scope": "many",
+                                                   "consequence": "reversible", "leverage": 0}}
+    d = decide(req, t, state, "live")
+    assert d["decision"] != "route" and any("unknown" in r for r in d["rejected"]["api-big"])

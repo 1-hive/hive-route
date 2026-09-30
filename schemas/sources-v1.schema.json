@@ -40,7 +40,8 @@
               "enum": [
                 "claude-stream",
                 "codex-sessions",
-                "http-health"
+                "http-health",
+                "gateway-spend"
               ]
             },
             "paths": {
