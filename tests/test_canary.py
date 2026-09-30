@@ -104,3 +104,18 @@ def test_busy_pool_stops_the_run(tmp_path, capsys):
                  "--log", log, "--max-usage", "0.6"]) == 6
     q = json.loads((tmp_path / "q.json").read_text())["opus-plan"]
     assert q["status"] == "candidate" and q["lesson"].startswith("stopped after 0 of 1 cases")
+
+
+def test_operator_accepts_a_candidate(tmp_path, capsys):
+    suite, sources, log = setup(tmp_path, "lazy")
+    assert main(["canary", "run", TABLE_PATH, "opus-plan", "--suite", suite,
+                 "--sources", sources, "--log", log]) == 5
+    assert main(["canary", "accept", TABLE_PATH, "opus-plan", "--by", "operator",
+                 "--reason", "cheap to retry", "--sources", sources, "--log", log]) == 0
+    q = json.loads((tmp_path / "q.json").read_text())["opus-plan"]
+    assert q["status"] == "qualified" and q["accepted"]["by"] == "operator"
+    assert "Accepted at 0/1 by operator: cheap to retry" in q["lesson"]
+    ev = [e for e in read(log) if e["type"] == "route.canary_recorded"][-1]["data"]
+    assert ev["status"] == "qualified" and ev["accepted"]["reason"] == "cheap to retry"
+    assert main(["canary", "accept", TABLE_PATH, "opus-plan", "--by", "operator",
+                 "--reason", "again", "--sources", sources, "--log", log]) == 2  # already qualified

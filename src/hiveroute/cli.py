@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import __version__
 from . import log as routelog
-from .canary import qualify, set_lesson
+from .canary import accept, qualify, set_lesson
 from .canonical import format_time, parse_time
 from .decide import decide
 from .errors import RouteError
@@ -104,6 +104,13 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--codex-root", default=CODEX_ROOT)
     cr.add_argument("--max-usage", type=float,
                     help="stop before a case if the route's pool has used this share (0-1)")
+    cacc = csub.add_parser("accept", help="accept a candidate below the suite's bar (operator)")
+    cacc.add_argument("table")
+    cacc.add_argument("route")
+    cacc.add_argument("--by", required=True, help="who accepts it")
+    cacc.add_argument("--reason", required=True)
+    cacc.add_argument("--sources", required=True)
+    cacc.add_argument("--log", required=True)
     cl = csub.add_parser("lesson", help="record an operator's lesson for a route")
     cl.add_argument("route")
     cl.add_argument("lesson")
@@ -234,6 +241,10 @@ def _run(args: argparse.Namespace) -> int:
 
     if args.cmd == "canary":
         sources = load_sources(args.sources)
+        if args.canary_cmd == "accept":
+            e = accept(load_table(args.table), args.route, args.by, args.reason, sources, args.log)
+            print(f"{args.route}: qualified at {e['passed']}/{e['cases']}, accepted by {args.by}")
+            return 0
         if args.canary_cmd == "lesson":
             e = set_lesson(args.route, args.lesson, sources, args.log)
             print(f"{args.route}: {e['status']}; lesson recorded")

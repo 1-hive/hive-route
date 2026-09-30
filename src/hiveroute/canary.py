@@ -217,3 +217,38 @@ def set_lesson(route_id: str, lesson: str, sources: dict, log: str) -> dict:
             k: e[k] for k in ("route_pin", "status", "suite", "suite_pin", "kinds", "passed",
                               "cases", "lesson", "results")}})
     return e
+
+
+def accept(table: Table, route_id: str, by: str, reason: str, sources: dict, log: str) -> dict:
+    """An operator accepts a candidate whose canary fell short of the suite's bar (§3).
+
+    Only for the route's current pin and an existing canary result; the entry records who
+    accepted it and why. A later canary run replaces it, acceptance included."""
+    if route_id not in table.routes:
+        raise RouteError("INPUT_INVALID", f"unknown route {route_id!r}")
+    if not sources.get("qualifications"):
+        raise RouteError("SOURCES_INVALID", "the sources file names no qualifications file")
+    pin = table.route_pin(route_id)
+
+    def change(q: dict) -> dict:
+        e = q.get(route_id)
+        if not e or not e.get("results"):
+            raise RouteError("INPUT_INVALID", f"{route_id!r} has no canary result to accept")
+        if e["route_pin"] != pin:
+            raise RouteError("INPUT_INVALID", f"{route_id!r}: its canary was for another version "
+                             "of the route; run it again")
+        if e["status"] == "qualified":
+            raise RouteError("INPUT_INVALID", f"{route_id!r} is already qualified")
+        e.update(status="qualified",
+                 accepted={"by": by, "reason": reason, "at": format_time(datetime.now(UTC)),
+                           "passed": e["passed"], "cases": e["cases"]},
+                 lesson=f"{e['lesson']} Accepted at {e['passed']}/{e['cases']} by {by}: {reason}"[:2000])
+        return e
+
+    e = quals.update(sources["qualifications"], change)
+    with open_log(log) as w:
+        w.ensure_table(table)
+        w.append("route.canary_recorded", {"route_id": route_id, **{
+            k: e[k] for k in ("route_pin", "status", "suite", "suite_pin", "kinds", "passed",
+                              "cases", "lesson", "results")}, "accepted": e["accepted"]})
+    return e
