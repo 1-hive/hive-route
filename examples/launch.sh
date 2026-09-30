@@ -75,7 +75,7 @@ case "$HARNESS" in
   claude-code)
     OUT=$WORK/$KIND-$N.jsonl
     nohup env "${ENVS[@]}" claude -p --model "$MODEL" ${EFFORT:+--effort "$EFFORT"} \
-      --permission-mode auto --output-format stream-json --verbose "$(cat "$KICKOFF")" > "$OUT" 2>&1 & ;;
+      --permission-mode auto --output-format stream-json --verbose "$(cat "$KICKOFF")" > "$OUT" 2> "${OUT%.*}.err" & ;;
   codex)
     OUT=$WORK/$KIND-$N.log
     nohup env "${ENVS[@]}" codex exec --skip-git-repo-check --cd "$WORK" "${GWARGS[@]}" -m "$MODEL" \
