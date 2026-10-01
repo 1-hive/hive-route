@@ -162,9 +162,13 @@ def env_value(key_env: str | None, env_file: str | None) -> str | None:
 
 def check_health(spec: dict, now: datetime) -> Reading:
     """``http-health``: a pool is down while none of its URLs answers 2xx (each is tried
-    twice). A down pool is
-    at a limit for ``down_minutes`` (default 5), so the router picks another route in the
-    tier (or waits) instead of starting an attempt that fails as an outage."""
+    twice). A down pool is at a limit for ``down_minutes`` (default 5), so the router picks
+    another route in the tier (or waits) instead of starting an attempt that fails.
+
+    The key goes in ``Authorization: Bearer`` unless ``auth_header`` names another header
+    (e.g. ``x-api-key``); ``headers`` adds fixed ones (e.g. ``anthropic-version``). Pointed
+    at a provider's free endpoint (a model list), this also catches a key that was revoked
+    or expired: a 401 or 403 marks the pool down like an outage."""
     import urllib.error
     import urllib.request
     key = env_value(spec.get("key_env"), spec.get("env_file"))
@@ -174,12 +178,21 @@ def check_health(spec: dict, now: datetime) -> Reading:
         if errors:
             import time
             time.sleep(1)
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"} if key else {})
+        headers = dict(spec.get("headers", {}))
+        if key:
+            if spec.get("auth_header"):
+                headers[spec["auth_header"]] = key
+            else:
+                headers["Authorization"] = f"Bearer {key}"
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=spec.get("timeout_seconds", 5)) as r:
                 if 200 <= r.status < 300:
                     return Reading(observed_at=now, source=url)
                 errors.append(f"{url}: HTTP {r.status}")
+        except urllib.error.HTTPError as e:
+            errors.append(f"{url}: HTTP {e.code}" + (" (key rejected)" if e.code in (401, 403)
+                                                     else ""))
         except (urllib.error.URLError, OSError, ValueError) as e:
             errors.append(f"{url}: {e}")
     return Reading(observed_at=now, source="; ".join(errors)[:300],

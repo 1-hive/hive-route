@@ -226,3 +226,35 @@ def test_router_reads_the_gateways_own_budget_period(monkeypatch):
                                  [{"usd": 10, "per": "month"}], now)
     assert r.windows["usd/month"] == (4.0, datetime(2026, 10, 15, tzinfo=UTC))
     assert "start_date=2026-09-15" in calls[1] and "tags=pool%3Aapi" in calls[1]
+
+
+class KeyCheck(BaseHTTPRequestHandler):
+    good = "k"
+
+    def do_GET(self):
+        ok = (self.headers.get("x-api-key") == KeyCheck.good
+              and self.headers.get("anthropic-version") == "2023-06-01")
+        self.send_response(200 if ok else 401)
+        self.end_headers()
+
+    def log_message(self, *a):
+        pass
+
+
+def test_health_with_a_provider_auth_header_catches_a_rejected_key(tmp_path, monkeypatch):
+    srv = HTTPServer(("127.0.0.1", 0), KeyCheck)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    t = metered_table()
+    env = tmp_path / "k.env"
+    env.write_text("API_KEY=k\n")
+    spec = {"reader": "http-health", "paths": [f"http://127.0.0.1:{srv.server_port}/v1/models"],
+            "key_env": "API_KEY", "env_file": str(env), "auth_header": "x-api-key",
+            "headers": {"anthropic-version": "2023-06-01"}}
+    src = {"format": "hive-route.sources/1", "pools": {"api": [spec]}}
+    now = datetime.now(UTC)
+    state, _ = collect(t, src, now)
+    assert "limited_until" not in state.get("pools", {}).get("api", {})
+    monkeypatch.setattr(KeyCheck, "good", "rotated")  # the key in the file is no longer valid
+    state, notes = collect(t, src, now)
+    assert "limited_until" in state["pools"]["api"]
+    assert "key rejected" in notes["api"]["source"]

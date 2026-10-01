@@ -68,6 +68,19 @@
             "timeout_seconds": {
               "type": "number",
               "exclusiveMinimum": 0
+            },
+            "auth_header": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]{1,64}$",
+              "description": "http-health: the header the key goes in (default Authorization: Bearer)."
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "description": "http-health: fixed headers to send (no secrets: keys come from key_env)."
             }
           }
         }

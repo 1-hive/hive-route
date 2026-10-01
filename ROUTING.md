@@ -221,6 +221,8 @@ The router needs each pool's usage against its limits. By pool kind:
 
 A pool can list several readers; their readings are merged (every limit any of them reports, and the latest `limited_until`).
 
+**A rejected key is a pool that's down.** An `http-health` reader can send the key in the provider's own header (`auth_header: x-api-key`, plus fixed `headers`) to a free endpoint such as the provider's model list. A 401 or 403 there marks the pool at a limit, so routing stops before an attempt fails on a revoked, rotated or expired key. 1-hive learned this when its Anthropic key stopped working between two attempts.
+
 Every usage figure carries `usage_basis`: `measured` (from gateway logs, or a fresh provider report), `estimated` (e.g. subscription usage from session files), or `unknown`. An `unknown` figure is never replaced with zero. For every kind, usage covers all attempts, including failed, indeterminate ones, reviews and consultations.
 
 **State shape.** For each pool, `limited_until` (set from a provider's limit response or a `capacity` failure), `in_flight` (local pools), and `usage` keyed by limit: `usd/<per>` and `tokens/<per>` for metered pools (in USD or tokens), `window/<w>` for subscription windows (as a share of the window, 0 to 1, since the amounts are unknown), each with `used`, `basis` and optionally `resets_at`. A limit is at its end when `used` reaches its amount; a metered budget also blocks an attempt whose maximum cost exceeds what remains.

@@ -42,7 +42,7 @@ Deployment data the router reads at each decision (`schemas/sources-v1.schema.js
   - `claude-stream`: Claude Code's stream-json output files (a launcher writes them with `claude -p --output-format stream-json`); the provider's window shares.
   - `codex-sessions`: `~/.codex/sessions`; the provider's window shares.
   - `gateway-spend`: a metered pool's spend from the gateway (§5).
-  - `http-health`: a URL that must answer 2xx, else the pool is treated as at a limit for `down_minutes`, so its tier falls back.
+  - `http-health`: a URL that must answer 2xx, else the pool is treated as at a limit for `down_minutes`, so its tier falls back. Give API-key pools one too, against the provider's free model list with the key in the provider's header (`auth_header: x-api-key`, `headers: {anthropic-version: "2023-06-01"}` for Anthropic): a revoked or expired key then stops routing instead of failing attempts.
 
   A pool with no reader has unknown usage. For a metered pool, unknown usage blocks it: the router never guesses at money.
 - **`qualifications`:** the file canaries write (§6).
