@@ -8,7 +8,8 @@
   proposed change can be judged on the hive's real history before it is pinned.
 - **Report:** ``report`` joins the log's attempts with task outcomes from the record
   (review verdicts, closes) and, optionally, usage per task folder from AgentsView, and
-  groups them by kind, facts, tier and route: the evidence for tuning the table. A
+  groups them by kind, facts, tier, route, mode and runtime (the request's ``runtime``
+  label, so evidence from different runtimes stays apart): the evidence for tuning the table. A
   person approves every table change (§4.6); the report only proposes.
 """
 
@@ -105,7 +106,8 @@ def report(log: str, events: list[dict], usage: dict | None = None) -> dict:
             continue
         d = ev["data"]["decision"]
         task = d["task"]
-        g = groups[(profile(d["facts"]), d["tier"], d["route_id"], ev["data"]["mode"])]
+        runtime = ev["data"]["request"].get("runtime", "unlabelled")
+        g = groups[(profile(d["facts"]), d["tier"], d["route_id"], ev["data"]["mode"], runtime)]
         g["attempts"] += 1
         g["tasks"].add(task)
         o = outcomes.get(task)
@@ -120,8 +122,9 @@ def report(log: str, events: list[dict], usage: dict | None = None) -> dict:
             first_pass = o["failed"] == 0
             agreement[(s.get("tier_with_estimates"), "first-pass" if first_pass else "rework")] += 1
     rows = []
-    for (prof, tier, route, mode), g in sorted(groups.items()):
+    for (prof, tier, route, mode, runtime), g in sorted(groups.items()):
         rows.append({"profile": prof, "tier": tier, "route": route, "mode": mode,
+                     "runtime": runtime,
                      "attempts": g["attempts"], "tasks": len(g["tasks"]),
                      "accepted": len(g["accepted"]), "failed_reviews": g["failed_reviews"],
                      "output_tokens": g["output_tokens"] or None})

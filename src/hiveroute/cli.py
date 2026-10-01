@@ -324,7 +324,7 @@ def _run(args: argparse.Namespace) -> int:
             return 0
         for g in r["groups"]:
             tok = f"  {g['output_tokens']:,} out-tokens" if g["output_tokens"] else ""
-            print(f"{g['profile']}\n    {g['route']} ({g['tier']}, {g['mode']}): "
+            print(f"{g['profile']}\n    {g['route']} ({g['tier']}, {g['mode']}, {g['runtime']}): "
                   f"{g['attempts']} attempts, {g['accepted']}/{g['tasks']} tasks accepted, "
                   f"{g['failed_reviews']} failed reviews{tok}")
         for k, n in r["scorer"].items():

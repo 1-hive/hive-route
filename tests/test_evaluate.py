@@ -84,3 +84,17 @@ def test_outcomes_and_usage_helpers():
                           {"cwd": "/w/1hive/x-review/sub", "total_output_tokens": 5},
                           {"cwd": "/elsewhere", "total_output_tokens": 99}], "/w/1hive")
     assert u == {"x": 15}
+
+
+def test_report_keeps_runtimes_apart(tmp_path, capsys):
+    log = tmp_path / "log.jsonl"
+    for rt in ("host", "container"):
+        req = tmp_path / f"{rt}.json"
+        req.write_text(json.dumps({"task": f"t-{rt}", "attempt": f"t-{rt}.worker.0",
+                                   "runtime": rt, "facts": {"kind": "work"}}))
+        assert main(["decide", TABLE_PATH, str(req), "--mode", "fixed", "--state",
+                     quals_state(tmp_path), "--log", str(log)]) == 0
+    capsys.readouterr()
+    assert main(["report", str(log), "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)["groups"]
+    assert sorted(r["runtime"] for r in rows) == ["container", "host"]

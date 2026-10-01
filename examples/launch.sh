@@ -9,6 +9,7 @@
 #             ROUTE_HINT   '{"tier":"strong","reason":"..."}'   (can only raise the tier)
 #             AUTHOR       '{"family":"claude","tier":"strong"}' (required for a review)
 #             ROUTE_HISTORY '[{"attempt":...,"route_id":...,"tier":...,"class":...}]'
+#             ROUTE_RUNTIME 'host' or 'container': where the attempt runs (keeps evidence apart)
 #
 # Exit 0: started (prints the pid). Exit 3: the router said wait, no_route or reconcile.
 set -euo pipefail
@@ -31,10 +32,10 @@ LOG=$STATE/route-log.jsonl
 hr observe "$LOG" "$STATE/*.attempt.json" --sources "$SOURCES" >&2 || true   # drift checks
 
 ATTEMPT=$TASK.$KIND.$N
-REQ=$(jq -n --arg t "$TASK" --arg a "$ATTEMPT" --arg k "$KIND" \
+REQ=$(jq -n --arg t "$TASK" --arg a "$ATTEMPT" --arg k "$KIND" --arg rt "${ROUTE_RUNTIME:-host}" \
   --argjson facts "${ROUTE_FACTS:-{\}}" --argjson hint "${ROUTE_HINT:-null}" \
   --argjson author "${AUTHOR:-null}" --argjson history "${ROUTE_HISTORY:-[]}" \
-  '{task: $t, attempt: $a, facts: ({kind: $k} + $facts)}
+  '{task: $t, attempt: $a, runtime: $rt, facts: ({kind: $k} + $facts)}
    + (if $hint then {hint: $hint} else {} end) + (if $author then {author: $author} else {} end)
    + (if ($history | length) > 0 then {history: $history} else {} end)')
 

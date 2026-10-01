@@ -104,6 +104,7 @@ The record also requires an actor to re-declare when its configuration changes (
 ## 8. Measuring and tuning
 
 - `hive-route report LOG --events <(hive events) --agentsview ROOT`: attempts by kind, facts, tier and route, with outcomes from the record and tokens from AgentsView; it proposes a tier lower where a group was always accepted.
+- **Label the runtime.** Put `runtime` in each request (`host`, `container`, …). The router doesn't use it to decide, but the report keeps evidence from different runtimes apart: a change of runtime (sandboxing, OS user, permission mode) can change outcomes as much as a change of model. After one, run the canaries again: the runtime isn't part of a route's pin, so nothing voids qualifications by itself.
 - `hive-route whatif LOG TABLE2`: the whole log re-decided under a proposed table, before you pin it.
 - `decide --shadow-table TABLE2`: a second table decides alongside, logged and never acted on.
 - The scorer (`scorer:` in the table, a local model) estimates facts a task didn't supply. It starts in shadow mode; make it live only once the report shows its estimates match outcomes.
