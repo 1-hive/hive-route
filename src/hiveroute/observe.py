@@ -6,7 +6,8 @@ the harness: ``{attempt, task, route_id, route_pin, model, harness, cwd, output,
 started_at}`` (``schemas/attempt-v1.schema.json``). ``observe()`` reads the models the
 provider reported for that attempt:
 
-- ``claude-code``: the ``model`` of every assistant message in the stream-json output;
+- ``claude-code`` (and its variants, e.g. ``claude-code-allowlist``): the ``model`` of every
+  assistant message in the stream-json output;
 - ``codex``: the ``model`` of every ``turn_context`` in the Codex session files whose
   ``session_meta.cwd`` is the attempt's folder and that were written after it started.
 
@@ -68,7 +69,7 @@ def read_manifest(path: str | Path) -> dict:
 
 
 def observed_models(manifest: dict, codex_root: str = CODEX_ROOT) -> set[str]:
-    if manifest["harness"] == "claude-code":
+    if manifest["harness"].startswith("claude-code"):
         return models_claude_stream(manifest["output"])
     if manifest["harness"] == "codex":
         return models_codex(manifest["cwd"], parse_time(manifest["started_at"]), codex_root)

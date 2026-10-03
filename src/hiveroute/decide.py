@@ -218,6 +218,8 @@ def check_route(rid: str, table: Table, state: dict, request: dict, views: dict)
         elif request["context_tokens"] > route["context_limit"] * table.data["context_margin"]:
             c.unfit.append(f"RT2: context {request['context_tokens']} exceeds "
                            f"{route['context_limit']} with margin")
+    if "kinds" in route and kind not in route["kinds"]:
+        c.unfit.append(f"RT2: serves only {', '.join(route['kinds'])}")
     if request.get("tools_needed", True) and route.get("tools") is not True:
         c.unfit.append("RT2: tool use " + ("unsupported" if "tools" in route else "unknown"))
 

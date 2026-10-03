@@ -497,5 +497,75 @@
   "expect": {
    "route_id": "gpt-sol-plan"
   }
+ },
+ {
+  "name": "a review-only route never serves work (RT2 kinds)",
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "light",
+   "route_id": "mini-api",
+   "rejected": [
+    "ds-review"
+   ]
+  },
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "name": "a review-only route serves a review of another family's work",
+  "request": {
+   "facts": {
+    "kind": "review",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "single",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "author": {
+    "family": "claude",
+    "tier": "light"
+   }
+  },
+  "expect": {
+   "decision": "route",
+   "tier": "light",
+   "route_id": "ds-review",
+   "not_rejected": [
+    "ds-review"
+   ]
+  },
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  }
  }
 ]

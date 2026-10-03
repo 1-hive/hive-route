@@ -20,10 +20,11 @@ routes:
   sonnet-plan:  {tier: standard, pool: claude-plan,   family: claude, model: claude-mid-x, tools: true, context_limit: 200000}
   mini-api:     {tier: light,    pool: openai-api,    family: gpt,    model: gpt-mini-x, tools: true, context_limit: 400000, price: {in: 0.25, out: 2}}
   qwen-local:   {tier: local,    pool: local-gpu,     family: qwen,   model: qwen-x, tools: true, context_limit: 32000}
+  ds-review:    {tier: light,    pool: local-gpu,     family: deepseek, model: deepseek-x, tools: true, context_limit: 128000, kinds: [review]}
 tiers:
   strong:   [opus-plan, opus-api, gpt-high-api]
   standard: [sonnet-plan, gpt-api]
-  light:    [mini-api]
+  light:    [mini-api, ds-review]
   local:    [qwen-local]
 fixed:
   work: opus-plan
