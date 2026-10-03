@@ -139,3 +139,12 @@ def test_busy_check_uses_a_share_for_metered_pools(monkeypatch):
     assert canary.pool_busy(t, "api-x", {}, 0.8) is None  # $2 of $10 is 20%
     used["v"] = 9.0
     assert "90%" in canary.pool_busy(t, "api-x", {}, 0.8)  # $9 of $10
+
+
+def test_relative_suite_path_resolves(monkeypatch):
+    # Checks run with the suite directory as cwd, so "{case}" must not stay relative.
+    from hiveroute.canary import load_suite
+    monkeypatch.chdir(Path(__file__).parent.parent)
+    root, _, pin = load_suite("canaries/starter")
+    assert root.is_absolute()
+    assert pin == load_suite(root)[2]

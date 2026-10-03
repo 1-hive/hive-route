@@ -39,7 +39,7 @@ from .usage import env_value
 
 def load_suite(path: str | Path) -> tuple[Path, dict, str]:
     """The suite's directory, its definition, and its pin (a digest of every file)."""
-    root = Path(path)
+    root = Path(path).resolve()   # checks run from the suite directory: {case} must be absolute
     if root.is_file():
         root = root.parent
     try:
