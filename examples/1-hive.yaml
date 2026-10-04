@@ -1,11 +1,30 @@
-# 1-hive's route table (mirrors 1-hive/deploy/route-table.yaml; version history there).
-# Pools: a Claude Pro plan (Claude Code), a ChatGPT plan (Codex), SingularityCompute
-# (self-hosted models, reached through the hive gateway: LiteLLM, since they speak only chat
-# completions) and the host's GPU (Ollama, for the scorer). SingularityCompute is listed first
-# in its tiers (prefer: order), backed up by the paid plans. `fixed` is the launcher before
-# routing: the baseline to measure against (ROUTING.md §6).
+# 1-hive route table (hive-route, ROUTING.md). Workers on Claude Code (Claude Pro plan),
+# reviewers on Codex (ChatGPT plan). No API keys and no local model yet, so every pool is a
+# subscription and the gateway is not used (direct mode, §8). tools/launch-task.sh asks the
+# router for every attempt; the log starts in `fixed` mode, which reproduces the launcher
+# before routing: the baseline to measure against (§6).
+# Version 2: a route per tier in each family, so a review (a different family, RT4)
+# has a route at every tier; effort is the lever within Codex's one model.
+# Version 3: a local model (Ollama on the host's GPU) for the scorer.
+# Version 4: sonnet-low replaces haiku-plan, whose edits Claude Code's auto permission mode refuses.
+# Version 5: SingularityCompute models first in the standard and light tiers, through the gateway.
+# Version 6: sc-gpt-oss-120b on Claude Code: Codex (0.158) only offers apply_patch as a freeform tool,
+#   which doesn't survive the gateway's translation to chat completions, so it couldn't edit files.
+# Version 7: gpt-6-astra (high) backs up Opus in strong; Opus pinned to high effort there, and at
+#   medium effort as opus-std in standard; candidates that didn't qualify removed.
+# Version 8: Anthropic API pool (metered, $10/month, $1/attempt), last in strong and standard.
+# Version 9: $5 per attempt (a real Opus attempt costs more than $1); still a $10/month test cap.
+# Version 10: SingularityCompute routes paused (out of the tiers, still defined and qualified): Claude
+#   Code's auto-mode safety classifier runs on the session's model, so a slow self-hosted model times
+#   out its own safety checks and actions get refused.
+# Version 11: api-opus and api-sonnet briefly out of the tiers by mistake, then restored (the operator's API-key restriction is for the MTG LLM player, not the router).
+# Version 12: the same tiers as version 10 (API routes in); a new version number for the restored table.
+# Version 13: API routes out of the tiers: the Anthropic API key was revoked or expired and can't be renewed.
+# Version 14: sc-deepseek-v4 back, for reviews only (kinds: [review]), last in standard: a non-Claude reviewer
+#   when Codex is out. It runs with no model judging its actions (harness claude-code-allowlist: dontAsk and
+#   a fixed allow list, deploy/review-allowlist.json), so its own model never approves its own actions.
 format: hive-route.table/1
-version: 13
+version: 14
 prefer: order        # SingularityCompute (self-hosted) first in each tier; the paid plans back it up
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
@@ -24,17 +43,19 @@ routes:
   gpt-sol-plan: {tier: standard, pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: medium, tools: true}
   sonnet-low:   {tier: light,    pool: claude-plan,  family: claude, harness: claude-code, model: claude-sonnet-5, effort: low, tools: true}
   gpt-sol-low:  {tier: light,    pool: chatgpt-plan, family: gpt,    harness: codex, model: gpt-5.6-sol, effort: low, tools: true}
-  sc-deepseek-v4:  {tier: standard, pool: singularity, family: deepseek, harness: claude-code, model: deepseek/deepseek-v4-flash-0731, gateway_model: custom_openai/deepseek/deepseek-v4-flash-0731, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
+  sc-deepseek-v4:  {tier: standard, pool: singularity, family: deepseek, harness: claude-code-allowlist, kinds: [review], model: deepseek/deepseek-v4-flash-0731, gateway_model: custom_openai/deepseek/deepseek-v4-flash-0731, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
   sc-qwen3.8-27b:  {tier: light,    pool: singularity, family: qwen,     harness: claude-code, model: qwen/qwen3.8-27b, gateway_model: custom_openai/qwen/qwen3.8-27b, endpoint: "https://llm.a.singularitycompute.com/v1", via_gateway: true, tools: true}
   api-opus:     {tier: strong,   pool: anthropic-api, family: claude, harness: claude-code, model: claude-opus-5-5, gateway_model: anthropic/claude-opus-5-5, effort: high, via_gateway: true, price: {in: 4, out: 20}, tools: true}
   api-sonnet:   {tier: standard, pool: anthropic-api, family: claude, harness: claude-code, model: claude-sonnet-5-5, gateway_model: anthropic/claude-sonnet-5-5, via_gateway: true, price: {in: 2, out: 10}, tools: true}
   qwen-local:   {tier: local,    pool: local-gpu,    family: qwen,   harness: ollama, endpoint: "http://127.0.0.1:11434", model: "qwen3:8b", tools: false}
 tiers:
   strong:   [opus-plan, gpt-astra-high]
-  standard: [opus-std, sonnet-plan, gpt-sol-plan]
+  standard: [opus-std, sonnet-plan, gpt-sol-plan, sc-deepseek-v4]
   light:    [sonnet-low, gpt-sol-low]
   local:    [qwen-local]
+# The scorer (§4.3) estimates unknown task facts on the local model; shadow: logged, not used.
 scorer: {route: qwen-local, mode: shadow, max_output_tokens: 800, timeout_s: 90}
+# fixed mode: the launcher's models before routing, the baseline (§6).
 fixed:
   work: opus-plan
   review: gpt-sol-plan
