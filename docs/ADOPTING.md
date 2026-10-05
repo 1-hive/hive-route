@@ -121,6 +121,8 @@ The record also requires an actor to re-declare when its configuration changes (
 
 If your agents run continuously and take their model from an OpenClaw config (chat bots, Iter on an OpenClaw backend), there's no launcher to put the router in front of. Bind them instead (ROUTING.md §9.3). Everything below has a worked example: [`fixtures/tables/openclaw.yaml`](../fixtures/tables/openclaw.yaml) (a table), [`examples/openclaw-bindings.yaml`](../examples/openclaw-bindings.yaml), [`examples/openclaw-sources.yaml`](../examples/openclaw-sources.yaml) and [`examples/openclaw-bind.sh`](../examples/openclaw-bind.sh). Keep your own copies of these with your deployment, not in this repository: they describe your infrastructure.
 
+**Start with one agent.** Bind a single agent first and take it through every step below; add the others once it has run live for a while. A problem then stays with one agent, and its before and after are easy to compare.
+
 1. **Routes:** one per model your agents may use, with `harness: openclaw` and the model as OpenClaw names it, `provider/model` (e.g. `anthropic/claude-opus-5-5`), in a pool per subscription, API key or local server.
 2. **Bindings:** one per agent whose model you want routed: the OpenClaw config file, `target` (`defaults` for `agents.defaults`, or the agent's id for `agents.entries.<id>`), the agent's `kind` and facts, `sessions` (its `openclaw-agent.sqlite`), and, for fixed mode, `route` and `fallbacks` set to what it runs today. Use the config paths as the `openclaw` command sees them: run the bind script where the router and OpenClaw see the same files (on the host with the state bind-mounted at the same path, or inside the agents' container).
 3. **Sources:**
@@ -129,7 +131,9 @@ If your agents run continuously and take their model from an OpenClaw config (ch
    - for GPT through Codex's app-server, a `codex-sessions` reader over the agent's `codex-home/sessions`;
    - the `openclaw` harness, for canaries (`openclaw agent exec --json`).
 4. **Fixed mode first:** `hive-route mode fixed TABLE --log LOG`, then `hive-route openclaw-config TABLE BINDINGS --sources SOURCES --check`. It changes nothing: it prints each binding's model chain and the patch per config file, and `--check` compares them with the config (its `modelPolicy.allow` list and providers). When the patches match what the agents run today, run `examples/openclaw-bind.sh` from a timer (e.g. every 5 minutes): the agents' models are now declared and logged, and drift is checked.
-5. **Qualify, then go live:** `canary run` for each route through the `openclaw` harness (§6), then `hive-route mode live TABLE --log LOG`. From then on the bind script moves agents off a pool at its limit, and back when it frees up.
+5. **Qualify, then go live:** after a few days in fixed mode, `canary run` for each route through the `openclaw` harness (§6), then, with your operator's approval, `hive-route mode live TABLE --log LOG`. From then on the bind script moves agents off a pool at its limit, and back when it frees up.
+
+**Feedback.** If a step didn't fit your hive or the docs were unclear, open an issue on this repository: the next hive adopts from the same docs.
 
 **Applying patches.** `openclaw-bind.sh` applies a changed patch with `openclaw config patch`, after OpenClaw's own dry run validates the result; OpenClaw hot-applies model settings without a restart. If your hive changes agent config only through a controller, a review step or a checksum gate, replace its `apply()` with a call to that: the patch is a plain JSON merge patch, and the router never writes a config itself.
 
