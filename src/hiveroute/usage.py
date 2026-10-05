@@ -27,12 +27,12 @@ import glob
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
 
-from .canonical import format_time, parse_time
+from .canonical import UTC, format_time, parse_time
 from .errors import RouteError
 from .table import Table, limit_key, schema_error
 

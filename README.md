@@ -22,6 +22,7 @@ uv run hive-route gateway-config TABLE                  # LiteLLM config from th
 uv run hive-route openclaw-config TABLE BINDINGS --sources SOURCES --log LOG [--check] [--write-dir DIR]
                                                         # long-running OpenClaw agents: model config patches
 uv run hive-route openclaw-observe LOG                  # drift in bound agents' turns (exit 4)
+uv run hive-route probe SOURCES                         # refresh subscription usage when due (§7)
 uv run pytest
 ```
 
@@ -29,7 +30,7 @@ uv run pytest
 - `fixtures/`: one case per rule, each with its expected decision.
 - `canaries/starter/`: the shared starter canary suite.
 - `examples/1-hive.yaml`: 1-hive's table (mirrors `1-hive/deploy/route-table.yaml`).
-- `examples/openclaw-bindings.yaml`, `fixtures/tables/openclaw.yaml`: binding long-running OpenClaw agents (ROUTING.md §9.3).
+- `examples/openclaw-bindings.yaml`, `examples/openclaw-sources.yaml`, `examples/openclaw-bind.sh`, `fixtures/tables/openclaw.yaml`: binding long-running OpenClaw agents (ROUTING.md §9.3; docs/ADOPTING.md §9).
 - `docs/ADOPTING.md`: how a hive adopts it; `examples/launch.sh`: a minimal launcher.
 - `docs/make-onepager.py`: builds the one-pager.
 

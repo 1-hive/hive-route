@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from conftest import ROOT
 
-from hiveroute.canonical import format_time
+from hiveroute.canonical import UTC, format_time
 from hiveroute.cli import main
 from hiveroute.decide import decide
 from hiveroute.errors import RouteError

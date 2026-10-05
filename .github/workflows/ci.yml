@@ -3,11 +3,14 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           enable-cache: true
       - run: uv sync --locked --extra test
       - run: uv run ruff check src tests

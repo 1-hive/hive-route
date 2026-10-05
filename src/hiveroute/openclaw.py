@@ -34,13 +34,13 @@ import os
 import re
 import sqlite3
 import subprocess
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
 
 from . import quals
-from .canonical import digest, parse_time
+from .canonical import UTC, digest, parse_time
 from .decide import check_route, decide, order_routes, pool_view
 from .errors import RouteError
 from .log import open_log, read

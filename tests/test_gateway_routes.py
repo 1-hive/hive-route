@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import sys
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import yaml
 from conftest import ROOT
 
+from hiveroute.canonical import UTC
 from hiveroute.cli import main
 from hiveroute.decide import decide
 from hiveroute.gateway import litellm_config

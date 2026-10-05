@@ -23,13 +23,13 @@ import os
 import shutil
 import subprocess
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import yaml
 
 from . import quals
-from .canonical import digest, format_time
+from .canonical import UTC, digest, format_time
 from .errors import RouteError
 from .log import open_log
 from .observe import CODEX_ROOT, models_claude_stream, models_codex

@@ -14,10 +14,10 @@ import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
-from .canonical import dumps, format_time
+from .canonical import UTC, dumps, format_time
 from .decide import decide
 from .errors import RouteError
 from .table import Table

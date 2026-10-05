@@ -1,0 +1,37 @@
+# Sources for a hive of long-running OpenClaw agents (ROUTING.md §7, §9.3), with
+# examples/openclaw-bindings.yaml and the table in ../fixtures/tables/openclaw.yaml.
+format: hive-route.sources/1
+fresh_minutes: 60
+qualifications: ~/hive/route/qualifications.json
+pools:
+  claude-plan:
+    # rate-limit errors in the agents' turns, and the probe's window shares
+    - reader: openclaw-sessions
+      paths: [/opt/hive/*/state/agents/*/agent/openclaw-agent.sqlite]
+      down_minutes: 30
+    - reader: claude-stream
+      paths: [~/hive/route/probes/claude-plan]
+  chatgpt-plan:
+    - reader: openclaw-sessions
+      paths: [/opt/hive/*/state/agents/*/agent/openclaw-agent.sqlite]
+    # GPT turns through Codex's app-server keep Codex session files with window shares
+    - reader: codex-sessions
+      paths: [/opt/hive/*/state/agents/*/agent/codex-home/sessions]
+  sc-api:
+    - reader: openclaw-sessions     # spend per day, from the turns' recorded cost
+      paths: [/opt/hive/*/state/agents/*/agent/openclaw-agent.sqlite]
+probes:
+  # A one-line Claude Code call on the same subscription: its stream-json output carries
+  # the 5-hour and 7-day window shares. Hourly at most, and only after the agents ran.
+  # Claude Code uses CLAUDE_CODE_OAUTH_TOKEN, if your agents' token is a setup-token.
+  claude-plan:
+    argv: [claude, -p, "Reply with OK", --model, claude-haiku-4-5, --output-format, stream-json,
+           --verbose, --max-turns, "1"]
+    output_dir: ~/hive/route/probes/claude-plan
+    every_minutes: 60
+    active_paths: [/opt/hive/*/state/agents/*/agent/openclaw-agent.sqlite-wal]
+harnesses:
+  openclaw:
+    argv: [openclaw, agent, exec, --model, "{model}", --cwd, "{cwd}", --json, --message-file, "-"]
+    stdin: true
+    effort_args: [--thinking, "{effort}"]

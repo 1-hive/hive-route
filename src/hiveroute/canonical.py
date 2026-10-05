@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+# datetime.UTC needs Python 3.11; hive-route runs on 3.10 (Ubuntu 22.04's default).
+UTC = timezone.utc
 
 
 def dumps(obj: object) -> str:
@@ -20,6 +23,8 @@ def digest(obj: object) -> str:
 
 def parse_time(value: str) -> datetime:
     """An RFC 3339 timestamp with an explicit offset, as an aware UTC datetime."""
+    if value[-1:] in ("Z", "z"):  # fromisoformat accepts Z only from Python 3.11
+        value = value[:-1] + "+00:00"
     t = datetime.fromisoformat(value)
     if t.tzinfo is None:
         raise ValueError(f"timestamp has no offset: {value!r}")

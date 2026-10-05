@@ -6,13 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import __version__
 from . import log as routelog
 from .canary import accept, qualify, set_lesson
-from .canonical import format_time, parse_time
+from .canonical import UTC, format_time, parse_time
 from .decide import decide
 from .errors import RouteError
 from .evaluate import agentsview_usage, load_events, report, shadow, whatif
@@ -145,6 +145,11 @@ def _parser() -> argparse.ArgumentParser:
                         "binding for drift (§9.3)")
     oo.add_argument("log")
     oo.add_argument("--sources", help="sources file naming the qualifications file to update")
+
+    pr = sub.add_parser("probe", help="run the sources file's usage probes that are due (§7)")
+    pr.add_argument("sources")
+    pr.add_argument("--pool", action="append", help="only this pool's probe (repeatable)")
+    pr.add_argument("--force", action="store_true", help="run even if not due")
 
     rc = sub.add_parser("record", help="post new log entries' summaries to the hive record (A1)")
     rc.add_argument("log")
@@ -347,6 +352,14 @@ def _run(args: argparse.Namespace) -> int:
             print(f"drift: {d['binding']} on {d['route_id']}: bound {d['pinned_model']}, "
                   f"reported {', '.join(d['observed_models'])}")
         return 4 if events else 0
+
+    if args.cmd == "probe":
+        from .probe import probe_all
+        res = probe_all(load_sources(args.sources), datetime.now(UTC), args.force, args.pool)
+        for pid, r in res.items():
+            print(f"{pid}: " + (r["skipped"] if "skipped" in r
+                                else f"ran ({r['why']}): exit {r['exit']}, {r['output']}"))
+        return 0 if all(r.get("exit", 0) == 0 for r in res.values()) else 9
 
     if args.cmd == "record":
         from .record import emit_with_hive

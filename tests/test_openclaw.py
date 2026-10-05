@@ -7,13 +7,13 @@ import json
 import shutil
 import sqlite3
 import subprocess
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from conftest import FIXTURES, qualified
 
 from hiveroute import openclaw
-from hiveroute.canonical import format_time
+from hiveroute.canonical import UTC, format_time
 from hiveroute.cli import main
 from hiveroute.errors import RouteError
 from hiveroute.log import read, replay

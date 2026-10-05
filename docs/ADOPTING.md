@@ -2,12 +2,20 @@
 
 How a hive puts its agents' model choice behind hive-route. [`ROUTING.md`](../ROUTING.md) is the design; this is the path to running it. 1-hive's deployment is the worked example throughout: [`1-hive/deploy`](https://github.com/1-hive/1-hive/tree/main/deploy) and [`tools/launch-task.sh`](https://github.com/1-hive/1-hive/blob/main/tools/launch-task.sh).
 
-Linux only. You need Python ≥ 3.11 with [uv](https://docs.astral.sh/uv/), `jq`, and the harnesses your agents run (Claude Code, Codex). A gateway (§5) also needs rootless Podman; a local model, Ollama.
+Linux only. You need Python ≥ 3.10 (Ubuntu 22.04's default is enough), `jq`, and the harnesses your agents run (Claude Code, Codex, OpenClaw). A gateway (§5) also needs rootless Podman; a local model, Ollama.
 
 ```sh
+# with uv
 git clone https://github.com/1-hive/hive-route && cd hive-route && uv sync
 uv tool install -e .          # puts `hive-route` on your PATH
+
+# or with the system Python, no uv
+python3 -m venv ~/.local/share/hive-route && ~/.local/share/hive-route/bin/pip install \
+  "git+https://github.com/1-hive/hive-route"
+ln -s ~/.local/share/hive-route/bin/hive-route ~/.local/bin/hive-route
 ```
+
+(On Debian and Ubuntu, `python3 -m venv` needs the `python3-venv` package.)
 
 ## 1. The order of work
 
@@ -111,19 +119,23 @@ The record also requires an actor to re-declare when its configuration changes (
 
 ## 9. Long-running OpenClaw agents
 
-If your agents run continuously and take their model from an OpenClaw config (chat bots, Iter on an OpenClaw backend), there's no launcher to put the router in front of. Bind them instead (ROUTING.md §9.3):
+If your agents run continuously and take their model from an OpenClaw config (chat bots, Iter on an OpenClaw backend), there's no launcher to put the router in front of. Bind them instead (ROUTING.md §9.3). Everything below has a worked example: [`fixtures/tables/openclaw.yaml`](../fixtures/tables/openclaw.yaml) (a table), [`examples/openclaw-bindings.yaml`](../examples/openclaw-bindings.yaml), [`examples/openclaw-sources.yaml`](../examples/openclaw-sources.yaml) and [`examples/openclaw-bind.sh`](../examples/openclaw-bind.sh). Keep your own copies of these with your deployment, not in this repository: they describe your infrastructure.
 
-1. **Routes** with `harness: openclaw` and `model: provider/model`, as in OpenClaw's config ([`fixtures/tables/openclaw.yaml`](../fixtures/tables/openclaw.yaml)).
-2. **A bindings file** ([`examples/openclaw-bindings.yaml`](../examples/openclaw-bindings.yaml)): each agent's config file and target, kind and facts, and its session databases.
-3. **Sources:** an `openclaw-sessions` reader per pool over the agents' `openclaw-agent.sqlite` files, and an `openclaw` harness for canaries (`openclaw agent exec --json`).
-4. **Fixed mode first:** `hive-route mode fixed TABLE --log LOG`, and each binding's `route` and `fallbacks` set to what the agent runs today. `hive-route openclaw-config TABLE BINDINGS --sources SOURCES --log LOG --check --write-dir DIR` writes a patch per config file; apply it as you apply any config change (OpenClaw hot-applies model settings). Nothing changes yet, but the models are now declared and logged.
-5. **Qualify, then go live:** canaries per route, `mode live`, and run `openclaw-config` from a timer, applying the patch when it changes, plus `openclaw-observe LOG` for drift.
+1. **Routes:** one per model your agents may use, with `harness: openclaw` and the model as OpenClaw names it, `provider/model` (e.g. `anthropic/claude-opus-5-5`), in a pool per subscription, API key or local server.
+2. **Bindings:** one per agent whose model you want routed: the OpenClaw config file, `target` (`defaults` for `agents.defaults`, or the agent's id for `agents.entries.<id>`), the agent's `kind` and facts, `sessions` (its `openclaw-agent.sqlite`), and, for fixed mode, `route` and `fallbacks` set to what it runs today. Use the config paths as the `openclaw` command sees them: run the bind script where the router and OpenClaw see the same files (on the host with the state bind-mounted at the same path, or inside the agents' container).
+3. **Sources:**
+   - an `openclaw-sessions` reader for every pool, over the agents' session databases (it reads them read-only; compressed events need `zstd`, the binary or the `zstandard` module);
+   - for a Claude subscription, a usage probe (ROUTING.md §7): a one-line `claude -p` call on the same subscription whose output gives the 5-hour and 7-day shares, run hourly at most and only after the agents were active; a `claude-stream` reader over its output folder. Without it the router only learns that the pool is at a limit, after a rate-limit error;
+   - for GPT through Codex's app-server, a `codex-sessions` reader over the agent's `codex-home/sessions`;
+   - the `openclaw` harness, for canaries (`openclaw agent exec --json`).
+4. **Fixed mode first:** `hive-route mode fixed TABLE --log LOG`, then `hive-route openclaw-config TABLE BINDINGS --sources SOURCES --check`. It changes nothing: it prints each binding's model chain and the patch per config file, and `--check` compares them with the config (its `modelPolicy.allow` list and providers). When the patches match what the agents run today, run `examples/openclaw-bind.sh` from a timer (e.g. every 5 minutes): the agents' models are now declared and logged, and drift is checked.
+5. **Qualify, then go live:** `canary run` for each route through the `openclaw` harness (§6), then `hive-route mode live TABLE --log LOG`. From then on the bind script moves agents off a pool at its limit, and back when it frees up.
 
-The reader needs read access to the session databases; compressed events are decoded with `zstd` (the binary, or the `zstandard` module).
+**Applying patches.** `openclaw-bind.sh` applies a changed patch with `openclaw config patch`, after OpenClaw's own dry run validates the result; OpenClaw hot-applies model settings without a restart. If your hive changes agent config only through a controller, a review step or a checksum gate, replace its `apply()` with a call to that: the patch is a plain JSON merge patch, and the router never writes a config itself.
 
 ## 10. Known limits
 
 - The router steers by usage; the provider or gateway enforces the caps. Subscription usage between harness reports is an estimate.
 - Agents that run as your own OS user can read your key files and the router's state; a separate OS user per agent is the real boundary.
 - Tiers are only as good as the facts you give them: with no facts, every task routes strong.
-- OpenClaw doesn't record subscription window shares: a bound agent's subscription pool is known only to be at a limit (after a rate-limit error), not how close it is.
+- OpenClaw doesn't record subscription window shares: without a usage probe, a bound agent's subscription pool is known only to be at a limit (after a rate-limit error), not how close it is.
