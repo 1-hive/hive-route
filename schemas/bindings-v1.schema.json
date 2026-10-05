@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/bindings-v1.schema.json",
+  "title": "hive-route bindings, format 1: long-running agents whose model comes from their harness's config (OpenClaw), and what the router decides for each (ROUTING.md §9.3)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "bindings"],
+  "properties": {
+    "format": {"const": "hive-route.bindings/1"},
+    "bindings": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["config", "target", "kind"],
+        "properties": {
+          "config": {"type": "string", "minLength": 1, "description": "The OpenClaw config file the patch is for (a key of the output's patches)."},
+          "target": {"type": "string", "pattern": "^(defaults|[A-Za-z0-9][A-Za-z0-9._-]{0,63})$", "description": "defaults (agents.defaults) or an agent id (agents.entries.<id>)."},
+          "kind": {"type": "string", "minLength": 1},
+          "facts": {"type": "object", "description": "As in a request (request-v1.schema.json), without kind."},
+          "author": {"type": "object", "description": "For a review binding: the author's family and tier (RT4)."},
+          "tools_needed": {"type": "boolean"},
+          "fallback_floor": {"enum": ["local", "light", "standard", "strong"], "description": "The lowest tier fallbacks may come from (default: the binding's own tier). An always-on agent may prefer a weaker answer to none."},
+          "route": {"type": "string", "minLength": 1, "description": "Fixed mode: the route (default: the table's fixed route for the kind)."},
+          "fallbacks": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Fixed mode: the fallback routes, in order."},
+          "sessions": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "The agent's OpenClaw session databases (globs), for drift checks."}
+        }
+      }
+    }
+  }
+}

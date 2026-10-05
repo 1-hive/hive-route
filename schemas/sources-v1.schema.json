@@ -41,7 +41,8 @@
                 "claude-stream",
                 "codex-sessions",
                 "http-health",
-                "gateway-spend"
+                "gateway-spend",
+                "openclaw-sessions"
               ]
             },
             "paths": {

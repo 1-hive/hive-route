@@ -1,0 +1,22 @@
+# Binding long-running OpenClaw agents to the route table (ROUTING.md §9.3), with the
+# table in ../fixtures/tables/openclaw.yaml. Paths are a container's bind mount as seen
+# from the host; adjust them to your deployment.
+format: hive-route.bindings/1
+bindings:
+  # A research agent: the default model of its OpenClaw instance.
+  research:
+    config: /opt/hive/research/config/openclaw.json
+    target: defaults
+    kind: work
+    fallback_floor: local          # rather a local model than no answer
+    # fixed mode: what it runs today
+    route: oc-opus
+    fallbacks: [oc-qwen-api, oc-qwen-local]
+    sessions: [/opt/hive/research/state/agents/*/agent/openclaw-agent.sqlite]
+  # An Iter loop whose model backend is an OpenClaw agent entry.
+  iter-backend:
+    config: /opt/hive/omega/gateway/config/openclaw.json
+    target: iter-omega
+    kind: work
+    facts: {specification: partial, verification: weak, scope: few, consequence: reversible}
+    sessions: [/opt/hive/omega/gateway/state/agents/iter-omega/agent/openclaw-agent.sqlite]

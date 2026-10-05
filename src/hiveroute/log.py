@@ -121,6 +121,12 @@ def replay(path: str | Path) -> tuple[int, list[str]]:
             if t.pin != ev["data"]["pin"]:
                 problems.append(f"{where}: table content gives {t.pin}, logged {ev['data']['pin']}")
             tables[ev["data"]["pin"]] = t
+        elif ev["type"] == "route.bound":
+            from .openclaw import replay_bound
+            checked += 1
+            problem = replay_bound(ev, tables)
+            if problem:
+                problems.append(f"{where}: binding: {problem}")
         elif ev["type"] in ("route.decided", "route.waiting", "route.shadow_decided"):
             d = ev["data"]
             table = tables.get(d["table"])

@@ -126,6 +126,26 @@ def _parser() -> argparse.ArgumentParser:
     g.add_argument("--no-database", action="store_true",
                    help="no database_url: master key only, no per-actor keys or spend logs")
 
+    oc = sub.add_parser("openclaw-config", help="bind long-running OpenClaw agents: their "
+                        "models as config patches (§9.3)")
+    oc.add_argument("table")
+    oc.add_argument("bindings", help="bindings file (schemas/bindings-v1.schema.json)")
+    osrc = oc.add_mutually_exclusive_group()
+    osrc.add_argument("--state", help="state JSON file")
+    osrc.add_argument("--sources", help="build the state now from this sources file (§7)")
+    oc.add_argument("--mode", choices=["live", "fixed"],
+                    help="default: the log's latest route.mode_set, else live")
+    oc.add_argument("--log", help="log the binding as route.bound when it changed")
+    oc.add_argument("--write-dir", help="also write each config's patch to "
+                    "DIR/<config name>.patch.json")
+    oc.add_argument("--check", action="store_true", help="check the patches against the "
+                    "config files they're for (allow list, providers); exit 8 on a problem")
+
+    oo = sub.add_parser("openclaw-observe", help="check OpenClaw agents' turns since the latest "
+                        "binding for drift (§9.3)")
+    oo.add_argument("log")
+    oo.add_argument("--sources", help="sources file naming the qualifications file to update")
+
     rc = sub.add_parser("record", help="post new log entries' summaries to the hive record (A1)")
     rc.add_argument("log")
     rc.add_argument("--hive-cmd", default="hive", help="the hive CLI (identity from HIVE_* env)")
@@ -279,6 +299,54 @@ def _run(args: argparse.Namespace) -> int:
         for n in budget_notes(t):
             print(f"budget: {n}", file=sys.stderr)
         return 0
+
+    if args.cmd == "openclaw-config":
+        from . import openclaw
+        t = load_table(args.table)
+        b = openclaw.load_bindings(args.bindings)
+        if args.state:
+            state = _read_json(args.state)
+        elif args.sources:
+            state, _ = collect(t, load_sources(args.sources), datetime.now(UTC))
+        else:
+            state = {"as_of": format_time(datetime.now(UTC))}
+        mode = args.mode or (routelog.current_mode(args.log) if args.log else None) or "live"
+        out, changed = openclaw.bind(t, b, state, mode, args.log)
+        print(json.dumps({**out, "changed": changed}, indent=2))
+        if args.log and not changed:
+            print("hive-route: binding unchanged since the latest route.bound", file=sys.stderr)
+        if args.write_dir:
+            d = Path(args.write_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            for cfg, patch in out["patches"].items():
+                f = d / f"{Path(cfg).stem}.patch.json"
+                tmp = f.with_suffix(".tmp")
+                tmp.write_text(json.dumps(patch, indent=2) + "\n")
+                tmp.replace(f)
+        problems = []
+        for name, res in out["results"].items():
+            for n in res["notes"]:
+                print(f"{name}: {n}", file=sys.stderr)
+            if args.check:
+                try:
+                    cfg = json.loads(Path(res["config"]).read_text())
+                except (OSError, json.JSONDecodeError) as e:
+                    problems.append(f"{name}: {res['config']}: {e}")
+                    continue
+                problems += [f"{name}: {p}" for p in openclaw.check_config(cfg, res)]
+        for p in problems:
+            print(f"check: {p}", file=sys.stderr)
+        return 8 if problems else 0
+
+    if args.cmd == "openclaw-observe":
+        from . import openclaw
+        src = load_sources(args.sources) if args.sources else {}
+        events = openclaw.observe(args.log, src.get("qualifications"))
+        for ev in events:
+            d = ev["data"]
+            print(f"drift: {d['binding']} on {d['route_id']}: bound {d['pinned_model']}, "
+                  f"reported {', '.join(d['observed_models'])}")
+        return 4 if events else 0
 
     if args.cmd == "record":
         from .record import emit_with_hive

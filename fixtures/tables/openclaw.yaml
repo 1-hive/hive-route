@@ -1,0 +1,29 @@
+# A hive of long-running OpenClaw agents (bindings, ROUTING.md §9.3): Claude and ChatGPT
+# subscriptions, a metered API, and a local model.
+format: hive-route.table/1
+version: 1
+pools:
+  claude-plan: {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
+  chatgpt-plan: {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
+  sc-api: {kind: metered, limits: [{usd: 20, per: day}, {usd: 2, per: attempt}]}
+  local: {kind: local, limits: [{concurrent: 2}]}
+routes:
+  oc-opus: {tier: strong, pool: claude-plan, family: claude, harness: openclaw,
+            model: anthropic/claude-opus-5-5, tools: true}
+  oc-gpt: {tier: strong, pool: chatgpt-plan, family: gpt, harness: openclaw,
+           model: openai/gpt-5.6-sol, tools: true}
+  oc-sonnet: {tier: standard, pool: claude-plan, family: claude, harness: openclaw,
+              model: anthropic/claude-sonnet-5-5, tools: true}
+  cc-sonnet: {tier: standard, pool: claude-plan, family: claude, harness: claude-code,
+              model: claude-sonnet-5-5, tools: true}
+  oc-qwen-api: {tier: light, pool: sc-api, family: qwen, harness: openclaw,
+                model: singularitycompute/qwen/qwen3.8-27b, tools: true,
+                price: {in: 0.2, out: 0.6}}
+  oc-qwen-local: {tier: local, pool: local, family: qwen, harness: openclaw,
+                  model: ollama/qwen2.5:7b, tools: true}
+tiers:
+  strong: [oc-opus, oc-gpt]
+  standard: [oc-sonnet, cc-sonnet]
+  light: [oc-qwen-api]
+  local: [oc-qwen-local]
+fixed: {work: oc-opus}

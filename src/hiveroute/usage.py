@@ -10,6 +10,10 @@ the harnesses write those reports into their session output:
 - ``codex-sessions``: Codex's session files (``~/.codex/sessions``) carry
   ``token_count`` events with ``rate_limits``: used percent, window length, reset time.
 
+Other readers: ``http-health`` (a pool is down while its URL fails), ``gateway-spend``
+(a metered pool's spend from the gateway) and ``openclaw-sessions`` (spend, tokens and
+rate-limit errors from OpenClaw's session databases; ``openclaw.py``).
+
 A reading is ``measured`` while it is fresh, ``estimated`` once it is older than the
 sources file's ``fresh_minutes`` (usage can only have grown since), and ``unknown``
 once its window has reset. An unknown figure is never replaced with zero.
@@ -348,6 +352,17 @@ def pool_state(table: Table, pid: str, reading: Reading | None, now: datetime,
     return st
 
 
+def _read(spec: dict, pid: str, table: Table, now: datetime, since: datetime) -> Reading | None:
+    if spec["reader"] == "http-health":
+        return check_health(spec, now)
+    if spec["reader"] == "gateway-spend":
+        return read_gateway_spend(spec, pid, table.pools[pid]["limits"], now)
+    if spec["reader"] == "openclaw-sessions":
+        from .openclaw import read_sessions
+        return read_sessions(spec, pid, table, now)
+    return READERS[spec["reader"]](spec["paths"], since)
+
+
 def collect(table: Table, sources: dict, now: datetime) -> tuple[dict, dict]:
     """Build the state for ``decide()``, and a note per pool saying where it came from."""
     fresh = timedelta(minutes=sources.get("fresh_minutes", 30))
@@ -356,10 +371,7 @@ def collect(table: Table, sources: dict, now: datetime) -> tuple[dict, dict]:
     for pid, specs in sources.get("pools", {}).items():
         if pid not in table.pools:
             raise RouteError("SOURCES_INVALID", f"pools/{pid}: not a pool of the table")
-        readings = [check_health(s, now) if s["reader"] == "http-health"
-                    else read_gateway_spend(s, pid, table.pools[pid]["limits"], now)
-                    if s["reader"] == "gateway-spend"
-                    else READERS[s["reader"]](s["paths"], since) for s in specs]
+        readings = [_read(s, pid, table, now, since) for s in specs]
         latest = merge_readings([r for r in readings if r is not None])
         entry = pool_state(table, pid, latest, now, fresh)
         if entry:

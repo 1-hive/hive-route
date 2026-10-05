@@ -109,8 +109,21 @@ The record also requires an actor to re-declare when its configuration changes (
 - `decide --shadow-table TABLE2`: a second table decides alongside, logged and never acted on.
 - The scorer (`scorer:` in the table, a local model) estimates facts a task didn't supply. It starts in shadow mode; make it live only once the report shows its estimates match outcomes.
 
-## 9. Known limits
+## 9. Long-running OpenClaw agents
+
+If your agents run continuously and take their model from an OpenClaw config (chat bots, Iter on an OpenClaw backend), there's no launcher to put the router in front of. Bind them instead (ROUTING.md §9.3):
+
+1. **Routes** with `harness: openclaw` and `model: provider/model`, as in OpenClaw's config ([`fixtures/tables/openclaw.yaml`](../fixtures/tables/openclaw.yaml)).
+2. **A bindings file** ([`examples/openclaw-bindings.yaml`](../examples/openclaw-bindings.yaml)): each agent's config file and target, kind and facts, and its session databases.
+3. **Sources:** an `openclaw-sessions` reader per pool over the agents' `openclaw-agent.sqlite` files, and an `openclaw` harness for canaries (`openclaw agent exec --json`).
+4. **Fixed mode first:** `hive-route mode fixed TABLE --log LOG`, and each binding's `route` and `fallbacks` set to what the agent runs today. `hive-route openclaw-config TABLE BINDINGS --sources SOURCES --log LOG --check --write-dir DIR` writes a patch per config file; apply it as you apply any config change (OpenClaw hot-applies model settings). Nothing changes yet, but the models are now declared and logged.
+5. **Qualify, then go live:** canaries per route, `mode live`, and run `openclaw-config` from a timer, applying the patch when it changes, plus `openclaw-observe LOG` for drift.
+
+The reader needs read access to the session databases; compressed events are decoded with `zstd` (the binary, or the `zstandard` module).
+
+## 10. Known limits
 
 - The router steers by usage; the provider or gateway enforces the caps. Subscription usage between harness reports is an estimate.
 - Agents that run as your own OS user can read your key files and the router's state; a separate OS user per agent is the real boundary.
 - Tiers are only as good as the facts you give them: with no facts, every task routes strong.
+- OpenClaw doesn't record subscription window shares: a bound agent's subscription pool is known only to be at a limit (after a rate-limit error), not how close it is.

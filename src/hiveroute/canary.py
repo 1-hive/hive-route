@@ -119,6 +119,9 @@ def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, 
 
     if route.get("harness") == "codex":
         observed = models_codex(str(work), started, codex_root)
+    elif route.get("harness") == "openclaw":
+        from .openclaw import models_exec
+        observed = models_exec(output)
     else:
         observed = models_claude_stream(output)
     return {"case": case["id"], "passed": passed, "harness_exit": harness_exit,

@@ -281,6 +281,7 @@ LiteLLM is the default path. The router still works without it (**direct mode**:
 | **R5 review** | Rules F7 and RT4. |
 | **R9 instruments** | Every decision is logged with its inputs, so R9 can replay history under a different route table. A **shadow table** runs alongside the live one and logs `route.shadow_decided` without acting. Evaluation belongs to R9. |
 | **Agents with their own loop** (e.g. Iter) | The agent's episode start calls the router and sets its model variable; the agent loop is unchanged. |
+| **Long-running agents that take their model from config** (OpenClaw, and Iter on an OpenClaw backend) | The router binds them instead of launching: their config's primary model and fallbacks come from the table (§9.3). |
 
 **Events** (the `route.` family, added to the catalog by R8):
 
@@ -312,6 +313,18 @@ The record froze as SPEC v1.0 on 2026-09-28 with the `route.` prefix reserved, s
 
 **The JSONL log** (`src/hiveroute/log.py`) is the interim form. Each line is `{v, seq, type, at, router, data}` in canonical JSON: `seq` is gapless (appends take a file lock), `at` is wall time and informational, `router` is the router's version. `route.decided` (and `route.waiting`, for every other outcome) carries the full request, state, mode and table pin with the decision; every table a decision names was logged in full by an earlier `route.table_pinned`. So `hive-route replay` recomputes every decision from the log alone, and an import into the record needs nothing else.
 
+
+### 9.3 Long-running agents: OpenClaw bindings
+
+Some hives don't launch an agent per task. OpenClaw agents run continuously (chat bots, a gateway serving Iter loops) and take their model from their config: `agents.defaults.model` or `agents.entries.<id>.model`, a `primary` and ordered `fallbacks`, which OpenClaw hot-applies when the file changes (no restart; checked on OpenClaw 2026.9.8). For them the router **binds** instead of launching. The code is `src/hiveroute/openclaw.py`.
+
+- **Routes.** An OpenClaw route has `harness: openclaw` and an OpenClaw model reference, `provider/model`, as its `model` (e.g. `anthropic/claude-opus-5-5`).
+- **Bindings** (`schemas/bindings-v1.schema.json`; `examples/openclaw-bindings.yaml`). One entry per agent: the config file and `target` (`defaults` or an agent id), the agent's `kind` and facts, and optionally `fallback_floor`, `route` and `fallbacks` (fixed mode), and `sessions` (its session databases, for drift).
+- **`hive-route openclaw-config TABLE BINDINGS --sources SOURCES --log LOG`** decides each binding with the same `decide()` as an attempt: tier rules, qualifications, pool limits, fixed mode. The primary is the decision's route. The fallbacks are the binding's other usable OpenClaw routes: the rest of its tier, then the tiers above, then, only down to `fallback_floor`, the tiers below. An always-on agent may prefer a weaker answer to none, so that's the binding's choice, never the default. When nothing can serve (every pool at a limit, nothing qualified), the binding keeps its fixed route and says so (`degraded`). The output is a JSON merge patch per config file (`model` and the `models` entries); the router never writes an agent's config, and each hive applies the patch its own way. `--check` compares the patch with the config file (its `modelPolicy.allow` list and providers). A binding is logged as `route.bound`, with its full inputs, only when its result changes, and `replay` recomputes it. Run it periodically, e.g. every few minutes from a timer: when a pool hits a limit, the next render moves the agents off it.
+- **Usage** (reader `openclaw-sessions`, paths are the agents' `openclaw-agent.sqlite` files, read-only). Each assistant turn records provider, model, the model that answered, tokens and cost. The reader gives a metered pool its spend and tokens per period, and puts a pool at a limit for `down_minutes` (default 30) after a rate-limit error on one of its models, unless a later turn on the pool succeeded. OpenClaw doesn't record subscription window shares, so those stay unknown; a GPT route through Codex keeps its own session files, which `codex-sessions` reads.
+- **Drift** (`hive-route openclaw-observe LOG`). Turns since the latest binding are checked against it: a provider that answered with another model than the one asked for (a dated snapshot of it is the same model) is drift on that route, which goes back to `candidate`; a model the binding didn't name at all (someone changed the config by hand) is drift too, logged against the binding's primary without demoting it.
+- **Canaries** run through `openclaw agent exec --model <ref> --json` (a harness entry in the sources file, e.g. `argv: [openclaw, agent, exec, --model, "{model}", --cwd, "{cwd}", --json, --message-file, "-"]` with `stdin: true`, `effort_args: [--thinking, "{effort}"]`); the model reported is the one in its JSON envelope.
+- **Effort** isn't set through the config (the agent's thinking level applies); a binding that names a route with an effort says so in its notes.
 ---
 
 ## 10. Route table example

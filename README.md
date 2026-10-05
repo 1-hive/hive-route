@@ -1,6 +1,6 @@
 # hive-route
 
-A slim model-routing service for One Hive (release R8): named routes, one canary per route, detectable model switches. Works for hives on API keys, subscriptions, local models, or a mix.
+A slim model-routing service for One Hive (release R8): named routes, one canary per route, detectable model switches. Works for hives on API keys, subscriptions, local models, or a mix, and for agents launched per task or running continuously (OpenClaw).
 
 Status: built; 1-hive runs it live. To adopt it, read [`docs/ADOPTING.md`](docs/ADOPTING.md) and start from [`examples/launch.sh`](examples/launch.sh). See [`ROUTING.md`](ROUTING.md) (rev 5) and the one-pager [`ROUTING-onepager.pdf`](ROUTING-onepager.pdf).
 
@@ -19,13 +19,17 @@ uv run hive-route whatif LOG TABLE2                     # the log under another 
 uv run hive-route report LOG --events EVENTS --agentsview ROOT   # outcomes by kind, facts, tier, route
 uv run hive-route record LOG                            # summaries to the hive record (A1)
 uv run hive-route gateway-config TABLE                  # LiteLLM config from the table
+uv run hive-route openclaw-config TABLE BINDINGS --sources SOURCES --log LOG [--check] [--write-dir DIR]
+                                                        # long-running OpenClaw agents: model config patches
+uv run hive-route openclaw-observe LOG                  # drift in bound agents' turns (exit 4)
 uv run pytest
 ```
 
-- `schemas/`: table, request, state, sources, attempt manifest and canary suite formats.
+- `schemas/`: table, request, state, sources, attempt manifest, canary suite and bindings formats.
 - `fixtures/`: one case per rule, each with its expected decision.
 - `canaries/starter/`: the shared starter canary suite.
 - `examples/1-hive.yaml`: 1-hive's table (mirrors `1-hive/deploy/route-table.yaml`).
+- `examples/openclaw-bindings.yaml`, `fixtures/tables/openclaw.yaml`: binding long-running OpenClaw agents (ROUTING.md §9.3).
 - `docs/ADOPTING.md`: how a hive adopts it; `examples/launch.sh`: a minimal launcher.
 - `docs/make-onepager.py`: builds the one-pager.
 
