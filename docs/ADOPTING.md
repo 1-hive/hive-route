@@ -68,7 +68,7 @@ Per attempt:
 1. **Build the request:** `task`, `attempt` (unique per attempt), `facts.kind` (`work`, `review`, …). Add what the task's creator knows, since facts are what lower the tier:
    - `facts`: `specification` (`explicit`/`partial`/`goal_only`), `verification` (`independent`/`weak`/`none`), `scope` (`single`/`few`/`many`), `consequence` (`reversible`/`costly`), `leverage`;
    - `author: {family, tier}` for a review (it must run on another family);
-   - `history`: earlier attempts with their failure `class` (`outage`, `capacity`, `truncated`, `missing_info`, `failed_check`, `stalled`, `indeterminate`, `interrupted`, `checkpoint`). A second `failed_check` moves one tier up. A `checkpoint` is a worker asking to be routed again at a milestone (ROUTING.md §4.5): restart it with the facts as they now stand.
+   - `history`: earlier attempts with their failure `class` (`outage`, `capacity`, `truncated`, `missing_info`, `failed_check`, `stalled`, `indeterminate`, `interrupted`, `checkpoint`). A second `failed_check` moves one tier up. A `checkpoint` is a worker asking to be routed again at a milestone (optional; see Checkpoints below).
 2. **Decide:** `hive-route decide TABLE - --sources SOURCES --log LOG [--task-text KICKOFF]`. Exit 0 means route; exit 3 means `wait` (retry at `wait_until`), `no_route` (the table can't serve it; an operator's problem) or `reconcile` (settle an attempt whose outcome is unknown first). Never start anything on exit 3.
 3. **Start** the decision's `harness` with its `model` and `effort`; through the gateway when `via_gateway` is set (§5).
 4. **Write the manifest:** `hive-route manifest DECISION --cwd DIR --output FILE` into your state folder, and run `hive-route observe LOG 'STATE/*.attempt.json'` before each decision: it compares the models the provider reported with each route's and flags drift.
@@ -76,6 +76,28 @@ Per attempt:
 Two rules from 1-hive's security review:
 - **Validate ids before using them.** Task and attempt ids end up in file paths, a Codex `-c` config override and an HTTP header; a quote, newline or `../` in one can rewrite the harness's provider, inject a header or pick another key file. Accept only the record's id syntax, `^[a-z0-9][a-z0-9._-]{0,63}$` (the example launcher does).
 - **Keep the log, manifests and history outside the agents' working folders**, so an agent doesn't edit what steers the router (failure history moves tiers; manifests drive drift checks).
+
+### Facts: what lets routing save
+
+A fact the request doesn't carry takes its costliest value, so **a task without facts runs on your strongest tier.** Routing in live mode saves nothing until the agents that write tasks also state their facts. Ask them to; it's cheap, since whoever writes a task already knows the answers:
+
+- `specification`: does the task pin a plan or interface and an acceptance check (`explicit`), only part of it (`partial`), or only the goal (`goal_only`)?
+- `verification`: will a check the worker can't edit decide whether it's done: protected tests, a reference result, an independent reviewer with a stated check (`independent`)? Only the worker's own tests (`weak`)? Nothing (`none`)?
+- `scope`: how many components it touches (`single`, `few`, `many`).
+- `consequence`: `costly` if it spends external compute, touches shared or production state, or is hard to undo; otherwise `reversible`.
+- `leverage`: how many tasks wait on this one.
+
+What worked in 1-hive:
+- **Put the facts in the task, not the launch.** The agent that writes an order adds one line, e.g. `Route facts: specification=explicit verification=independent scope=few consequence=reversible leverage=0`, and the launcher reads it. The facts then sit next to the order they describe, and restarts and reviews reuse them.
+- **Allow `unknown`, refuse silence.** A fact can be `unknown` (it then takes the costly default), but a new task with no facts line is refused at launch. That catches forgotten facts without forcing guesses.
+- **Tell the writer how facts lower the tier:** a plan pinned and an independent check make `light` work possible (ROUTING.md §4.5). Writing the plan first or adding the check is usually worth more than arguing over the tier.
+- **Over-optimistic facts are bounded.** If a cheap attempt fails its checks twice, the tier goes up (F8). The cost is a wasted cheap attempt, as long as results are checked independently.
+
+A hive without such an agent can still use the scorer (ROUTING.md §4.3) to estimate unknown facts from the task's text, once replay shows its estimates are good.
+
+### Checkpoints (optional)
+
+A worker can end its attempt at a milestone and ask to be routed again (ROUTING.md §4.5): down after it has written a plan, up when the task needs more. Your launcher passes the next attempt's `history` with class `checkpoint`, and the facts (or a hint) as they now stand. You don't need it: a launcher that never sends `checkpoint` behaves as before. To adopt it, give your workers a way to ask (1-hive: a `route-checkpoint.json` and a checkpoint report on the record; see its [worker contract](https://github.com/1-hive/1-hive/blob/main/docs/worker-contract.md)), and have the component that restarts them check the request: only `specification` and `scope` should change on a worker's word, a request up becomes a `hint`, and a task gets a few at most. 1-hive's [`supervisor.py`](https://github.com/1-hive/1-hive/blob/main/tools/supervisor.py) does this.
 
 ## 5. The gateway (only when needed)
 

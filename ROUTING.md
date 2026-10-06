@@ -5,6 +5,7 @@
 
 **Changes in rev 6:**
 - Checkpoints (§4.5, §5): a worker that finishes the part of a task that needed its tier (a plan, a diagnosis), or finds it needs more, can end its attempt at a checkpoint. The launcher restarts it with the facts or hint as they now stand, so the tier is recomputed partway through a task, without switching models mid-attempt. New attempt-end class `checkpoint`; RT7 keeps the route when the tier is unchanged.
+- Facts guidance for adopters (ADOPTING.md §4). From this revision, [`CHANGELOG.md`](CHANGELOG.md) lists each revision's changes and what adopters need to do.
 
 **Changes in rev 5:**
 - Routes through the gateway (`via_gateway`), for backends a harness can't call directly (self-hosted chat-completions servers) and for API keys; health-checked pools fall back when their endpoint is down (§7, §8).
@@ -108,7 +109,7 @@ The router decides from facts that can be checked, not from a verdict about diff
 
 A fact that isn't supplied is `unknown`. Unknown facts take the table's conservative default (the costlier value, overridable per fact in `fact_defaults`) unless the scorer fills them. An unknown `leverage` counts as the threshold; an unknown author tier (F7) counts as `strong`. Each decision records every fact with its source, `supplied` or `default`.
 
-**What the record supplies today.** The record's `1-hive` profile has only `kind` ∈ {`work`, `review`} on `task.created`, and no `specification`, `verification`, `scope` or `consequence`; task dependencies (for `leverage`) are deferred in the 1-hive plan. So in 1-hive every fact but `kind` is unknown until the profile carries them (§9.1) or the scorer is live, and the conservative defaults put almost every attempt in `strong`. That is correct, but it means `live` mode saves nothing over `fixed` until the facts exist.
+**What the record supplies today.** The record's `1-hive` profile has only `kind` ∈ {`work`, `review`} on `task.created`, and no `specification`, `verification`, `scope` or `consequence`; task dependencies (for `leverage`) are deferred in the 1-hive plan. So in 1-hive every fact but `kind` is unknown until the profile carries them (§9.1) or the scorer is live, and the conservative defaults put almost every attempt in `strong`. That is correct, but it means `live` mode saves nothing over `fixed` until the facts exist. So 1-hive requires them on each work order instead: a `Route facts:` line the chief of staff writes, which the launcher reads, refusing a new task without one (`unknown` is allowed per fact). ADOPTING.md §4 explains how other hives can do the same.
 
 ### 4.2 From facts to tier
 
