@@ -140,20 +140,23 @@ def turn(at: datetime, model: str, provider: str = "anthropic", *, response: str
     return {"type": "message", "id": "x", "message": m}
 
 
-def make_db(path, events, compress=()) -> str:
+def make_db(path, events, compress=(), created=None) -> str:
+    """created: each row's created_at, by default its message's timestamp (ms)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path)
     con.execute(SCHEMA)
     for i, e in enumerate(events):
         text = json.dumps(e)
+        at = created[i] if created else ((e.get("message") or {}).get("timestamp")
+                                         if isinstance(e, dict) else None)
         if i in compress:
             blob = subprocess.run(["zstd", "-q", "-c"], input=text.encode(), capture_output=True,
                                   check=True).stdout
-            con.execute("insert into transcript_events values ('s', ?, null, 0, ?, ?, null)",
-                        (i, blob, len(text)))
+            con.execute("insert into transcript_events values ('s', ?, null, ?, ?, ?, null)",
+                        (i, at, blob, len(text)))
         else:
-            con.execute("insert into transcript_events values ('s', ?, ?, 0, null, null, null)",
-                        (i, text))
+            con.execute("insert into transcript_events values ('s', ?, ?, ?, null, null, null)",
+                        (i, text, at))
     con.commit()
     con.close()
     return str(path)
@@ -328,3 +331,17 @@ def test_one_patch_per_binding_when_agents_share_a_config(tmp_path, capsys):
                  "--state", str(sf), "--write-dir", str(tmp_path / "out"), "--per-binding"]) == 0
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [
         "cosmo.patch.json", "omega.patch.json"]
+
+
+def test_old_rows_are_filtered_in_sql_in_either_unit(tmp_path):
+    new, old = NOW - timedelta(hours=1), NOW - timedelta(days=3)
+    events = [turn(new, "claude-opus-5-5"), turn(new, "claude-opus-5-5")]
+    for name, scale in (("ms", 1000), ("s", 1)):
+        # The second row's message is recent, but the row was written days ago: only a
+        # created_at filter skips it (rows are never written before their message).
+        created = [int(new.timestamp() * scale), int(old.timestamp() * scale)]
+        db = make_db(tmp_path / name / "openclaw-agent.sqlite", events, created=created)
+        found, problems = openclaw.scan([db], NOW - timedelta(days=1))
+        assert len(found) == 1 and not problems
+    db = make_db(tmp_path / "null" / "openclaw-agent.sqlite", events, created=[None, None])
+    assert len(openclaw.scan([db], NOW - timedelta(days=1))[0]) == 2   # no created_at: read

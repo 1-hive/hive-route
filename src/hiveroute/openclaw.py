@@ -280,12 +280,20 @@ def _paths(patterns: list[str]) -> list[str]:
     return sorted(out)
 
 
+CREATED_MARGIN_S = 3600
+
+
 def scan(patterns: list[str], since: datetime) -> tuple[list[dict], list[str]]:
     """Assistant turns at or after ``since`` across OpenClaw agent session databases,
     oldest first: ``{at, provider, model, response_model, stop, error, usage, db}``, and the
     problems reading them: a pattern no database matches, a database that can't be read,
     events that couldn't be decompressed. A problem is never silent: an unreadable database
-    must not look like an idle agent. Databases are opened read-only."""
+    must not look like an idle agent. Databases are opened read-only.
+
+    Rows are filtered in SQL on ``created_at`` (when the row was written, so never before its
+    message), with an hour's margin, so a long history isn't read and decompressed at every
+    state build; rows without it are read. Its unit (seconds or milliseconds) is taken from
+    the database's newest row."""
     since_ms = since.timestamp() * 1000
     out, problems = [], []
     for pat in patterns:
@@ -294,7 +302,11 @@ def scan(patterns: list[str], since: datetime) -> tuple[list[dict], list[str]]:
     for path in _paths(patterns):
         try:
             con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
-            rows = con.execute("select event_json, event_zstd from transcript_events").fetchall()
+            newest = con.execute("select max(created_at) from transcript_events").fetchone()[0]
+            scale = 1000 if isinstance(newest, (int, float)) and newest > 1e11 else 1
+            cut = (since_ms / 1000 - CREATED_MARGIN_S) * scale
+            rows = con.execute("select event_json, event_zstd from transcript_events "
+                               "where created_at is null or created_at >= ?", (cut,)).fetchall()
             con.close()
         except sqlite3.Error as e:
             problems.append(f"{path}: {e}")

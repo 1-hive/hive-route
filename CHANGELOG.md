@@ -2,6 +2,12 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 10 — 2026-10-06
+
+- The `openclaw-sessions` reader filters rows on `created_at` in SQL (with an hour's margin; its unit, seconds or milliseconds, read from the newest row) instead of reading and decompressing every event. The first pilot measured about 8 s and 330 MB per state build without it, too slow for the route service, where an agent's hook waits on it. Reported by the pilot.
+
+**Adopters:** nothing required.
+
 ## rev 9 — 2026-10-06
 
 From the first review of the route service by an adopter (Iter on an OpenClaw gateway).
