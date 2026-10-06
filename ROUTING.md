@@ -1,7 +1,9 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-10-06 · rev 7 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
+**Status:** built · 2026-10-06 · rev 8 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
+
+**Changes in rev 8:** the route service (§9.2): `POST /route` per episode for agents with their own loop, with fixed facts per agent and history kept by the service.
 
 **Changes in rev 7:** fixes from the first OpenClaw adoption: `--check` reports every key a patch would add; one patch per binding on request (`--per-binding`); a probe's `env_file` wins over the router's environment. Details in [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -286,11 +288,11 @@ LiteLLM is the default path. The router still works without it (**direct mode**:
 | Release | Integration |
 |---|---|
 | **R1 record** | The router is an actor of class `instrument` with its own key. It writes events in the reserved `route.` family (below) once the record admits them (§9.1). Until then it writes the same events to a local JSONL log that can be imported later. |
-| **R6 runtime** (or a hive's own launcher) | Calls `POST /route` at each attempt start and launches the harness with the answer. Records the route on the attempt. |
+| **R6 runtime** (or a hive's own launcher) | Asks the router at each attempt start (`hive-route decide`, or the route service's `POST /route`, §9.2) and launches the harness with the answer. Records the route on the attempt. |
 | **Supervision** (if the hive has a supervisor) | "Reassign to a different model" becomes "ask the router with this failure class". |
 | **R5 review** | Rules F7 and RT4. |
 | **R9 instruments** | Every decision is logged with its inputs, so R9 can replay history under a different route table. A **shadow table** runs alongside the live one and logs `route.shadow_decided` without acting. Evaluation belongs to R9. |
-| **Agents with their own loop** (e.g. Iter) | The agent's episode start calls the router and sets its model variable; the agent loop is unchanged. |
+| **Agents with their own loop** (e.g. Iter) | The agent's episode start calls the route service (`POST /route`, §9.2) and sets its model variable; the agent loop is unchanged. |
 | **Long-running agents that take their model from config** (OpenClaw, and Iter on an OpenClaw backend) | The router binds them instead of launching: their config's primary model and fallbacks come from the table (§9.3). |
 
 **Events** (the `route.` family, added to the catalog by R8):
@@ -323,6 +325,17 @@ The record froze as SPEC v1.0 on 2026-09-28 with the `route.` prefix reserved, s
 
 **The JSONL log** (`src/hiveroute/log.py`) is the interim form. Each line is `{v, seq, type, at, router, data}` in canonical JSON: `seq` is gapless (appends take a file lock), `at` is wall time and informational, `router` is the router's version. `route.decided` (and `route.waiting`, for every other outcome) carries the full request, state, mode and table pin with the decision; every table a decision names was logged in full by an earlier `route.table_pinned`. So `hive-route replay` recomputes every decision from the log alone, and an import into the record needs nothing else.
 
+
+### 9.2 Agents with their own loop: the route service
+
+Routing per episode is where tiers pay off for an agent that runs continuously: easy episodes go light, hard ones stay strong. An episode here is the Omega/Iter routing proposal's (its §1.3): a bounded piece of work whose model holds through its tool round trips, so the router chooses once per episode, never per message. The code is `src/hiveroute/serve.py`.
+
+- **`hive-route serve TABLE AGENTS --log LOG --state-dir DIR [--sources SOURCES]`** runs an HTTP service (standard library; loopback by default). An agent asks `POST /route` at the start of each episode with its task, an episode id and the facts it may state, and gets the decision a launcher would: route, model, harness, endpoint and effort, or `wait`/`no_route`. When the episode ends it reports its class (§5) with `POST /episodes/end`. Each decision is logged as `route.decided`, so it replays like any other.
+- **Facts come from two places.** The **agents file** (`schemas/agents-v1.schema.json`; `examples/agents.yaml`) holds what's at stake in each agent's role: `verification`, `consequence`, `leverage`, which the agent can't change. The agent states per episode only what it can see in the request: by default `specification` and `scope` (`episode_facts`). A call that states a fixed fact is refused. As with checkpoints (§4.5), an agent never decides how cheap it may be. With `text`, the scorer (§4.3) estimates whatever is still unknown.
+- **History is the service's, not the agent's.** It records each episode's route and how it ended, per agent, in `--state-dir`, and builds every request's `history` from it, so failure classes move tiers (F8, RT5, RT7) as they do for attempts. An episode id is routed once.
+- **Identity:** each agent has a bearer token; the agents file holds only its SHA-256. Its task ids are prefixed with its name, so agents can't touch each other's history.
+- **Bound or served, not both.** An agent routed per episode isn't also bound (§9.3): the binding's config patches and the episode's choice would fight over its model.
+- **Not yet:** drift checks for served agents (the model that answered, as `openclaw-observe` does for bindings), and recording the service's decisions on the hive record (`hive-route record` reads the same log, so this needs nothing new).
 
 ### 9.3 Long-running agents: OpenClaw bindings
 

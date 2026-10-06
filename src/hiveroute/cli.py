@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from datetime import datetime, timedelta
@@ -13,13 +14,12 @@ from . import __version__
 from . import log as routelog
 from .canary import accept, qualify, set_lesson
 from .canonical import UTC, format_time, parse_time
-from .decide import decide
 from .errors import RouteError
 from .evaluate import agentsview_usage, load_events, report, shadow, whatif
 from .gateway import attempt_budget, budget_notes, budgets, litellm_config
 from .observe import CODEX_ROOT, find_manifests, observe
 from .record import sync
-from .scorer import apply, score
+from .serve import run_decision
 from .table import load_table
 from .usage import collect, load_sources
 
@@ -150,6 +150,19 @@ def _parser() -> argparse.ArgumentParser:
     oo.add_argument("log")
     oo.add_argument("--sources", help="sources file naming the qualifications file to update")
 
+    sv = sub.add_parser("serve", help="the route service: POST /route at each episode of an "
+                        "agent with its own loop (§9.2)")
+    sv.add_argument("table")
+    sv.add_argument("agents", help="agents file (schemas/agents-v1.schema.json)")
+    sv.add_argument("--log", required=True, help="the decision log (route.decided per episode)")
+    sv.add_argument("--state-dir", required=True, help="where the service keeps each agent's "
+                    "episodes; outside the agents' reach")
+    sv.add_argument("--sources", help="sources file: pool usage and qualifications (§7)")
+    sv.add_argument("--state-ttl", type=float, default=30.0,
+                    help="seconds a collected state is reused (default 30)")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8480)
+
     pr = sub.add_parser("probe", help="run the sources file's usage probes that are due (§7)")
     pr.add_argument("sources")
     pr.add_argument("--pool", action="append", help="only this pool's probe (repeatable)")
@@ -213,23 +226,13 @@ def _run(args: argparse.Namespace) -> int:
         else:
             state = {"as_of": format_time(datetime.now(UTC))}
         mode = args.mode or (routelog.current_mode(args.log) if args.log else None) or "live"
+        text = None
         if args.task_text:
             try:
                 text = Path(args.task_text).read_text(encoding="utf-8", errors="replace")
             except OSError as e:
                 raise RouteError("INPUT_INVALID", f"--task-text: {e}") from e
-            scored = score(t, request, text)
-            if scored:
-                # What the estimates would do to the tier, logged in either scorer mode.
-                with_est = decide(apply(request, {**scored, "mode": "live"}), t, state, "live")
-                scored["tier_with_estimates"] = with_est["computed_tier"]
-                scored["tier_without"] = decide(request, t, state, "live")["computed_tier"]
-                request = apply(request, scored)
-                if args.log:
-                    routelog.record_scored(args.log, t, scored)
-        decision = decide(request, t, state, mode)
-        if args.log:
-            routelog.record_decision(args.log, t, request, state, mode, decision)
+        decision = run_decision(t, request, state, mode, args.log, text)
         if args.shadow_table:
             st = load_table(args.shadow_table)
             sd = shadow(request, st, state)
@@ -352,6 +355,19 @@ def _run(args: argparse.Namespace) -> int:
         for p in problems:
             print(f"check: {p}", file=sys.stderr)
         return 8 if problems else 0
+
+    if args.cmd == "serve":
+        from .serve import Service, load_agents, make_server
+        t = load_table(args.table)
+        svc = Service(t, load_agents(args.agents),
+                      load_sources(args.sources) if args.sources else None,
+                      args.log, args.state_dir, args.state_ttl)
+        srv = make_server(svc, args.host, args.port)
+        print(f"hive-route: serving on {args.host}:{srv.server_address[1]}, table {t.pin}, "
+              f"mode {svc.mode()}", file=sys.stderr, flush=True)
+        with contextlib.suppress(KeyboardInterrupt):
+            srv.serve_forever()
+        return 0
 
     if args.cmd == "openclaw-observe":
         from . import openclaw

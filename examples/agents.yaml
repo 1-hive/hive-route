@@ -1,0 +1,20 @@
+# Agents that ask the route service for a model at each episode (ROUTING.md §9.2).
+# Keep your own copy with your deployment; it names your agents.
+#
+#   hive-route serve TABLE agents.yaml --log LOG --state-dir STATE --sources SOURCES
+#
+# token_sha256: printf %s "$TOKEN" | sha256sum, quoted (the agent holds the token; this file only its hash)
+format: hive-route.agents/1
+agents:
+  # A research agent: its results are checked independently and undone cheaply; nothing waits on it.
+  iter-research:
+    token_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    kinds: [work, consult]          # the first is the default; consult asks for strong (F1)
+    facts: {verification: independent, consequence: reversible, leverage: 0}
+    # episode_facts: [specification, scope]   (the default: what the agent sees in each request)
+    runtime: container
+  # A chat helper: no independent check of its answers, so at least standard (F4).
+  helper-bot:
+    token_sha256: "1111111111111111111111111111111111111111111111111111111111111111"
+    kinds: [work]
+    facts: {verification: none, consequence: reversible, leverage: 0}

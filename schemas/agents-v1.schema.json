@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/1-hive/hive-route/schemas/agents-v1.schema.json",
+  "title": "hive-route agents, format 1: agents that ask the route service for a model at each episode (ROUTING.md §9.2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "agents"],
+  "properties": {
+    "format": {"const": "hive-route.agents/1"},
+    "agents": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["token_sha256", "kinds"],
+        "properties": {
+          "token_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 (hex) of the agent's bearer token. The agent holds the token; this file holds only its hash."},
+          "kinds": {"type": "array", "minItems": 1, "items": {"enum": ["work", "review", "plan", "consult", "triage", "digest"]}, "description": "The kinds the agent may ask for; the first is the default."},
+          "facts": {"type": "object", "description": "Facts fixed for the agent, as in a request (request-v1.schema.json), without kind: what's at stake in its role. The agent can't change them."},
+          "episode_facts": {"type": "array", "items": {"enum": ["specification", "verification", "scope", "consequence", "leverage"]}, "uniqueItems": true, "description": "Facts the agent may state per episode (default: specification and scope). A fact in both lists is an error."},
+          "project": {"type": "string", "minLength": 1},
+          "runtime": {"type": "string", "minLength": 1, "maxLength": 64},
+          "author": {"type": "object", "description": "For an agent that only reviews: the author's family and tier (RT4)."}
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,13 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 8 — 2026-10-06
+
+- **The route service** (ROUTING.md §9.2, ADOPTING.md §10): `hive-route serve` answers `POST /route` at the start of each episode of an agent with its own loop (Iter), and takes `POST /episodes/end` with the episode's class. Facts at stake are fixed per agent in an agents file (`schemas/agents-v1.schema.json`, `examples/agents.yaml`); the agent states only `specification` and `scope` per episode. The service keeps each agent's episode history and logs every decision, which replays. Standard library only, no new dependency.
+- `decide` and the service share one path for scoring, deciding and logging.
+
+**Adopters:** nothing required. To route Iter agents per episode, add the hook in ADOPTING.md §10 and stop binding those agents.
+
 ## rev 7 — 2026-10-06
 
 Fixes from the first OpenClaw adoption (Ben's proto-hive).

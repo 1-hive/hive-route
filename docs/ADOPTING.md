@@ -165,13 +165,34 @@ If your agents run continuously and take their model from an OpenClaw config (ch
 - **Facts true of the agent's role,** i.e. of its most demanding request, not of each one. For a low-stakes helper bot, `consequence: reversible`, `leverage: 0` and `verification: none` are usually honest. State `leverage`: an unknown one counts as the threshold, which keeps an agent without an independent check on `strong` (F6). With those facts and a kind other than `consult`, the floor is `standard`.
 - **A cheaper route in that tier,** e.g. a smaller model on the same subscription, which uses less of its windows.
 
-Per-request savings need per-request facts: an agent with its own loop (Iter) can call the router at each episode start (ROUTING.md §9) instead of being bound. A second pool for the strong tier (another subscription or an API key) is what lets the router spread load rather than only wait.
+Per-request savings need per-request facts: an agent with its own loop (Iter) can ask the route service at each episode start (§10) instead of being bound. A second pool for the strong tier (another subscription or an API key) is what lets the router spread load rather than only wait.
 
 **Pick an active agent for the pilot.** An agent with little traffic gives little to measure: check its recent turns before choosing.
 
-## 10. Known limits
+## 10. Agents with their own loop: routing per episode
+
+For an agent that runs its own loop (Iter), the router can choose per episode instead of per agent: easy episodes go light, hard ones stay strong. It's the route service (ROUTING.md §9.2): `hive-route serve`. The agent needs a small hook; nothing else in its loop changes.
+
+**Run the service**
+1. An **agents file** ([`examples/agents.yaml`](../examples/agents.yaml)): per agent, the SHA-256 of its token (quoted), the `kinds` it may ask for, and its fixed `facts`, i.e. what's at stake in its role (`verification`, `consequence`, `leverage`; see §4, "Facts"). Keep it where the agents can't write.
+2. `hive-route serve TABLE AGENTS --log LOG --state-dir STATE --sources SOURCES` (default `127.0.0.1:8480`; `--host` and `--port` to change). `STATE` holds each agent's episodes; keep it out of the agents' reach too. Run it as a service; `GET /health` answers with the table pin and mode.
+3. The same table, sources, canaries and modes as everything else: in `fixed` mode the service answers with the table's fixed route for the kind, which is the baseline.
+
+**The hook in the agent** (the contract)
+- **At each episode start:** `POST /route` with `Authorization: Bearer <token>` and
+  `{"task": "<id>", "episode": "<id>", "facts": {"specification": ..., "scope": ...}}`.
+  Ids match `^[a-z0-9][a-z0-9._-]{0,63}$`; an episode id is used once; `task` groups the episodes of one piece of work, so earlier failures count. Optional: `kind` (one of the agent's), `hint` (`{"tier", "reason"}`, raises only), `context_tokens`, `estimate`, `tools_needed`, and `text` (the request, for the scorer to estimate unknown facts). Leave a fact out when unsure: it takes the costly default.
+- **The answer** is a decision (ROUTING.md §4.7). On `"decision": "route"`, run the episode on `model` (with `endpoint`, `effort`) and keep it until the episode ends, through every tool round trip. On `wait`, ask again at `wait_until` (or later if it's null); on `no_route` or `reconcile`, stop and tell the operator. Never pick a model yourself.
+- **At each episode end:** `POST /episodes/end` with `{"episode": "<id>", "class": ...}` when it didn't simply succeed: `outage`, `capacity` (with `limited_until` if the provider said), `truncated`, `missing_info`, `failed_check`, `stalled`, `indeterminate`, `interrupted`, or `checkpoint` (the agent wants the rest routed again, e.g. after writing a plan). A success needs no call.
+- **Judging the episode's facts.** `specification`: does the request pin what's wanted and how it's checked (`explicit`), partly (`partial`), or only a goal (`goal_only`)? `scope`: how much it touches (`single`, `few`, `many`). A small classifier step in the agent, or the router's scorer through `text`, can set them; the service refuses any other fact from the agent.
+- **Bound or served, not both:** stop binding an agent (§9) before its hook goes live.
+
+Start in `fixed` mode with one agent, as with bindings, and switch to `live` with your operator's approval once its routes are qualified.
+
+## 11. Known limits
 
 - The router steers by usage; the provider or gateway enforces the caps. Subscription usage between harness reports is an estimate.
 - Agents that run as your own OS user can read your key files and the router's state; a separate OS user per agent is the real boundary.
 - Tiers are only as good as the facts you give them: with no facts, every task routes strong.
+- The route service doesn't yet check which model answered a served agent's episodes (drift); bindings and launched attempts are checked.
 - OpenClaw doesn't record subscription window shares: without a usage probe, a bound agent's subscription pool is known only to be at a limit (after a rate-limit error), not how close it is.
