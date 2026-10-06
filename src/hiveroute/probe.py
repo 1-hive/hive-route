@@ -17,7 +17,9 @@ its ``paths``), and only the newest ``keep`` files are kept.
 The probe must draw on the same subscription as the agents. Where the agents use a token
 (a Claude Code setup-token, say), ``env_from`` names the variables to set from
 ``env_file`` (KEY=value lines), e.g. ``CLAUDE_CODE_OAUTH_TOKEN``; they're read at each run
-and never written anywhere. ``env`` sets fixed, non-secret variables.
+and never written anywhere. With ``env_file``, they come from that file only, never from the
+router's own environment (where a personal token would silently stand in). ``env`` sets fixed,
+non-secret variables.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .canonical import UTC
-from .usage import env_value
+from .usage import env_value, file_value
 
 
 def _latest_probe(out: Path) -> datetime | None:
@@ -70,7 +72,10 @@ def run(spec: dict, now: datetime) -> dict:
     path = out / f"probe-{now.strftime('%Y%m%dT%H%M%SZ')}.jsonl"
     env = {**os.environ, **spec.get("env", {})}
     for var in spec.get("env_from", []):   # secrets: read now, never logged or stored
-        value = env_value(var, spec.get("env_file"))
+        # From env_file only, when one is named: a variable of the same name in the router's
+        # own environment (someone's personal token, in a manual run) must not stand in for it.
+        value = (env_value(var, None) if not spec.get("env_file")
+                 else file_value(var, spec["env_file"]))
         if value is None:
             return {"output": str(path), "exit": f"{var} not found in env_file"}
         env[var] = value

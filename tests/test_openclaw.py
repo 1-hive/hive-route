@@ -280,12 +280,14 @@ def test_patch_names_are_unique_per_config():
 def test_compare_config_says_whether_it_would_change():
     res = openclaw.render(TABLE, bindings(), state(), "live")["results"]["cosmo"]
     same = {"agents": {"defaults": {"model": {"primary": "anthropic/claude-opus-5-5",
-                                              "fallbacks": ["openai/gpt-5.6-sol"]}}}}
+                                              "fallbacks": ["openai/gpt-5.6-sol"]},
+                                    "models": {"anthropic/claude-opus-5-5": {},
+                                               "openai/gpt-5.6-sol": {}}}}}
     assert openclaw.compare_config(same, res) == []
     other = {"agents": {"defaults": {"model": "anthropic/claude-opus-4-6"}}}
     assert openclaw.compare_config(other, res) == [
         "primary anthropic/claude-opus-4-6 -> anthropic/claude-opus-5-5",
-        "fallbacks [] -> ['openai/gpt-5.6-sol']"]
+        "fallbacks [] -> ['openai/gpt-5.6-sol']", "adds agents.defaults.models"]
 
 
 def test_an_unreadable_database_is_reported_and_spend_stays_unknown(tmp_path):
@@ -298,3 +300,31 @@ def test_an_unreadable_database_is_reported_and_spend_stays_unknown(tmp_path):
     log = bound_log(tmp_path, str(bad))
     warnings: list[str] = []
     assert openclaw.observe(log, None, warnings) == [] and warnings
+
+
+def test_compare_config_reports_a_models_map_the_patch_would_add():
+    res = openclaw.render(TABLE, bindings(), state(), "live")["results"]["omega"]
+    node = {"model": {"primary": res["primary"], "fallbacks": res["fallbacks"]}}
+    cfg = {"agents": {"entries": {"iter-omega": node}}}
+    assert openclaw.compare_config(cfg, res) == ["adds agents.entries.iter-omega.models"]
+    node["models"] = {r: {"alias": "x"} for r in [res["primary"], *res["fallbacks"]]}
+    assert openclaw.compare_config(cfg, res) == []          # {} merges into an existing entry
+    del node["models"][res["primary"]]
+    assert openclaw.compare_config(cfg, res) == [
+        f"adds agents.entries.iter-omega.models.{res['primary']}"]
+
+
+def test_one_patch_per_binding_when_agents_share_a_config(tmp_path, capsys):
+    b = bindings(config="/hive/b/openclaw.json")             # both bindings in one config
+    out = openclaw.render(TABLE, b, state(), "live")
+    assert list(out["patches"]) == ["/hive/b/openclaw.json"]
+    assert set(out["binding_patches"]) == {"cosmo", "omega"}
+    assert list(out["binding_patches"]["omega"]["agents"]) == ["entries"]
+    assert list(out["binding_patches"]["cosmo"]["agents"]) == ["defaults"]
+    bf, sf = tmp_path / "b.yaml", tmp_path / "state.json"
+    bf.write_text(json.dumps(b))
+    sf.write_text(json.dumps(state()))
+    assert main(["openclaw-config", str(FIXTURES / "tables" / "openclaw.yaml"), str(bf),
+                 "--state", str(sf), "--write-dir", str(tmp_path / "out"), "--per-binding"]) == 0
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [
+        "cosmo.patch.json", "omega.patch.json"]

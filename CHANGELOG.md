@@ -2,6 +2,17 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 7 — 2026-10-06
+
+Fixes from the first OpenClaw adoption (Ben's proto-hive).
+
+- `openclaw-config --check` reported "matches the config" when the patch would still add a `models` map (or an entry in it). It now lists every key the patch would add or set.
+- `--write-dir DIR --per-binding` writes one patch per binding (`DIR/<binding>.patch.json`; `binding_patches` in the output), for controllers that apply changes per agent while several agents share one config file. The default stays one patch per config file.
+- A usage probe with an `env_file` reads its `env_from` variables from that file only. Before, a variable of the same name in the router's own environment won, so a manual run could measure the wrong subscription.
+- ADOPTING.md §9: what binding gives without facts, and role-level facts for bound agents.
+
+**Adopters:** OpenClaw bindings: re-run `--check`; a binding that now says "would change … adds …models" was already being changed by its patch. If you set a probe token in the router's environment on purpose, move it to the `env_file` or drop `env_file`. Nothing else.
+
 ## rev 6 — 2026-10-06
 
 - **Checkpoints** (ROUTING.md §4.5, §5): a worker can end its attempt at a milestone and ask to be routed again, down after a plan or up when the task needs more. New attempt-end class `checkpoint` in the request's `history`; RT7 keeps the route when the tier is unchanged.

@@ -81,3 +81,16 @@ def test_probe_env_from_a_file(tmp_path):
     s["env_file"] = str(tmp_path / "missing.env")
     r = probe_all({"probes": {"p": s}}, datetime.now(UTC), force=True)["p"]
     assert "not found" in str(r["exit"])
+
+
+def test_env_file_wins_over_the_routers_own_environment(tmp_path, monkeypatch):
+    envf = tmp_path / "probe.env"
+    envf.write_text("PROBE_TOKEN=agents\n")
+    monkeypatch.setenv("PROBE_TOKEN", "personal")
+    s = spec(tmp_path, env_from=["PROBE_TOKEN"], env_file=str(envf),
+             argv=[sys.executable, "-c", "import os; print(os.environ['PROBE_TOKEN'])"])
+    res = probe_all({"probes": {"p": s}}, datetime.now(UTC))
+    assert Path(res["p"]["output"]).read_text().strip() == "agents"
+    envf.write_text("OTHER=1\n")
+    res = probe_all({"probes": {"p": s}}, datetime.now(UTC), force=True)
+    assert res["p"]["exit"] == "PROBE_TOKEN not found in env_file"

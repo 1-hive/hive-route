@@ -138,6 +138,9 @@ def _parser() -> argparse.ArgumentParser:
     oc.add_argument("--log", help="log the binding as route.bound when it changed")
     oc.add_argument("--write-dir", help="also write each config's patch to "
                     "DIR/<config name>.patch.json")
+    oc.add_argument("--per-binding", action="store_true", help="with --write-dir, write one "
+                    "patch per binding instead, DIR/<binding>.patch.json: for a controller that "
+                    "applies changes per agent when agents share a config file")
     oc.add_argument("--check", action="store_true", help="check the patches against the "
                     "config files they're for: say whether each binding matches what the agent "
                     "runs now, and exit 8 on a model the config can't use (allow list, providers)")
@@ -324,8 +327,10 @@ def _run(args: argparse.Namespace) -> int:
         if args.write_dir:
             d = Path(args.write_dir)
             d.mkdir(parents=True, exist_ok=True)
-            for cfg, patch in out["patches"].items():
-                f = d / out["patch_files"][cfg]
+            files = ({d / f"{n}.patch.json": p for n, p in out["binding_patches"].items()}
+                     if args.per_binding else
+                     {d / out["patch_files"][c]: p for c, p in out["patches"].items()})
+            for f, patch in files.items():
                 tmp = f.with_suffix(".tmp")
                 tmp.write_text(json.dumps(patch, indent=2) + "\n")
                 tmp.replace(f)

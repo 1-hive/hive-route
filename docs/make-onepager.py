@@ -160,7 +160,7 @@ def header(c, doc):
     c.setFillColor(MUTED)
     c.drawString(M + tw + 3 * mm, H - M - 5 * mm, 'a slim model router for One Hive (R8)')
     c.setFont('Sans', 7.4)
-    c.drawRightString(W - M, H - M - 5 * mm, 'rev 6 · 6 Oct 2026 · details in ROUTING.md')
+    c.drawRightString(W - M, H - M - 5 * mm, 'rev 7 · 6 Oct 2026 · details in ROUTING.md')
     c.setStrokeColor(ACC)
     c.setLineWidth(1.4)
     c.line(M, H - M - 8.2 * mm, W - M, H - M - 8.2 * mm)

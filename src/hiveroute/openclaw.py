@@ -150,8 +150,18 @@ def render(table: Table, bindings: dict, state: dict, mode: str) -> dict:
             node = node.setdefault(key, {})
         node["model"] = {"primary": refs[0], "fallbacks": refs[1:]}
         node.setdefault("models", {}).update({r: {} for r in refs})
+    # One patch per binding too, for a controller that applies changes per agent while several
+    # agents share a config file. Not in the digest: it's derived from the results.
+    per = {}
+    for name, res in results.items():
+        node = per.setdefault(name, {})
+        for key in _target(res):
+            node = node.setdefault(key, {})
+        refs = [res["primary"], *res["fallbacks"]]
+        node.update({"model": {"primary": refs[0], "fallbacks": refs[1:]}, "models": {r: {} for r in refs}})
     return {"table": table.pin, "mode": mode, "as_of": stamp, "results": results,
             "patches": patches, "patch_files": {c: patch_name(c) for c in patches},
+            "binding_patches": per,
             "digest": digest({"results": results, "patches": patches})}
 
 
@@ -170,12 +180,33 @@ def check_config(config: dict, result: dict) -> list[str]:
     return problems
 
 
+def _merge_changes(current: object, patch: dict, path: str) -> list[str]:
+    """What a JSON merge patch (RFC 7396) would change in ``current``: every key it adds or
+    replaces, as a dotted path."""
+    out = []
+    cur = current if isinstance(current, dict) else {}
+    for k, v in patch.items():
+        here = f"{path}.{k}" if path else k
+        if isinstance(v, dict):
+            if k not in cur or not isinstance(cur[k], dict):
+                out.append(f"adds {here}")
+            else:
+                out += _merge_changes(cur[k], v, here)
+        elif cur.get(k, object()) != v:
+            out.append(f"sets {here}")
+    return out
+
+
 def compare_config(config: dict, result: dict) -> list[str]:
-    """How applying the binding would change the config's model settings for its target;
-    empty when it matches what the agent runs now."""
+    """How applying the binding's patch would change the config for its target; empty only
+    when the patch changes nothing there. Model changes are spelled out; anything else the
+    patch would add (e.g. a ``models`` map the target doesn't have) is listed by path."""
     node: object = config
     for key in _target({"target": result["target"]}):
         node = node.get(key) if isinstance(node, dict) else None
+    refs = [result["primary"], *result["fallbacks"]]
+    path = ".".join(_target({"target": result["target"]}))
+    other = _merge_changes(node, {"models": {r: {} for r in refs}}, path)
     current = (node or {}).get("model") if isinstance(node, dict) else None
     if isinstance(current, str):
         current = {"primary": current}
@@ -185,7 +216,7 @@ def compare_config(config: dict, result: dict) -> list[str]:
         out.append(f"primary {current.get('primary')} -> {result['primary']}")
     if (current.get("fallbacks") or []) != result["fallbacks"]:
         out.append(f"fallbacks {current.get('fallbacks') or []} -> {result['fallbacks']}")
-    return out
+    return out + other
 
 
 def patch_name(config: str) -> str:

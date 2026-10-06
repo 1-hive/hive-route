@@ -153,14 +153,18 @@ def env_value(key_env: str | None, env_file: str | None) -> str | None:
         return None
     if key_env in os.environ:
         return os.environ[key_env]
-    if env_file:
-        try:
-            for line in Path(os.path.expanduser(env_file)).read_text().splitlines():
-                k, _, v = line.partition("=")
-                if k.strip() == key_env:
-                    return v.strip()
-        except OSError:
-            return None
+    return file_value(key_env, env_file) if env_file else None
+
+
+def file_value(key: str, env_file: str) -> str | None:
+    """A value from a KEY=value file only (never logged)."""
+    try:
+        for line in Path(os.path.expanduser(env_file)).read_text().splitlines():
+            k, _, v = line.partition("=")
+            if k.strip() == key:
+                return v.strip()
+    except OSError:
+        return None
     return None
 
 
