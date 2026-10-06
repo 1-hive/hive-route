@@ -18,7 +18,9 @@ from .table import TIERS, Table, limit_key, rank, schema_error
 FACTS = ("specification", "verification", "scope", "consequence", "leverage")
 # Classes after which a restart keeps its route (RT7), unless something else says otherwise.
 # An indeterminate attempt only gets here once reconciled, or when the table allows a retry.
-STAY_CLASSES = frozenset({"interrupted", "truncated", "missing_info", "indeterminate"})
+# A checkpoint keeps its route only while the tier stays the same: new facts or a hint that
+# change the tier move it.
+STAY_CLASSES = frozenset({"interrupted", "truncated", "missing_info", "indeterminate", "checkpoint"})
 
 
 def _reason(rule: str, note: str, tier: str | None = None) -> dict:

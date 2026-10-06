@@ -68,7 +68,7 @@ Per attempt:
 1. **Build the request:** `task`, `attempt` (unique per attempt), `facts.kind` (`work`, `review`, …). Add what the task's creator knows, since facts are what lower the tier:
    - `facts`: `specification` (`explicit`/`partial`/`goal_only`), `verification` (`independent`/`weak`/`none`), `scope` (`single`/`few`/`many`), `consequence` (`reversible`/`costly`), `leverage`;
    - `author: {family, tier}` for a review (it must run on another family);
-   - `history`: earlier attempts with their failure `class` (`outage`, `capacity`, `truncated`, `missing_info`, `failed_check`, `stalled`, `indeterminate`, `interrupted`). A second `failed_check` moves one tier up.
+   - `history`: earlier attempts with their failure `class` (`outage`, `capacity`, `truncated`, `missing_info`, `failed_check`, `stalled`, `indeterminate`, `interrupted`, `checkpoint`). A second `failed_check` moves one tier up. A `checkpoint` is a worker asking to be routed again at a milestone (ROUTING.md §4.5): restart it with the facts as they now stand.
 2. **Decide:** `hive-route decide TABLE - --sources SOURCES --log LOG [--task-text KICKOFF]`. Exit 0 means route; exit 3 means `wait` (retry at `wait_until`), `no_route` (the table can't serve it; an operator's problem) or `reconcile` (settle an attempt whose outcome is unknown first). Never start anything on exit 3.
 3. **Start** the decision's `harness` with its `model` and `effort`; through the gateway when `via_gateway` is set (§5).
 4. **Write the manifest:** `hive-route manifest DECISION --cwd DIR --output FILE` into your state folder, and run `hive-route observe LOG 'STATE/*.attempt.json'` before each decision: it compares the models the provider reported with each route's and flags drift.

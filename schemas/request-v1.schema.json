@@ -99,7 +99,7 @@
           "tier": {"enum": ["local", "light", "standard", "strong"]},
           "class": {
             "enum": ["outage", "capacity", "truncated", "missing_info", "failed_check",
-                     "stalled", "indeterminate", "interrupted"]
+                     "stalled", "indeterminate", "interrupted", "checkpoint"]
           },
           "pool": {"type": "string", "minLength": 1},
           "limited_until": {"type": "string", "format": "date-time"},

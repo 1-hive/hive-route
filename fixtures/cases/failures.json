@@ -510,5 +510,82 @@
    "tier": "light",
    "wait_until": "2026-10-01T00:00:00Z"
   }
+ },
+ {
+  "name": "a checkpoint with explicit facts moves off strong",
+  "state": {
+   "pools": {
+    "openai-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work",
+    "specification": "explicit",
+    "verification": "independent",
+    "scope": "few",
+    "consequence": "reversible",
+    "leverage": 0
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-plan",
+     "tier": "strong",
+     "class": "checkpoint"
+    }
+   ]
+  },
+  "expect": {
+   "tier": "light",
+   "route_id": "mini-api",
+   "not_rules": [
+    "RT7"
+   ]
+  }
+ },
+ {
+  "name": "a checkpoint that leaves the tier unchanged keeps its route",
+  "state": {
+   "pools": {
+    "anthropic-api": {
+     "usage": {
+      "usd/month": {
+       "used": 10,
+       "basis": "measured"
+      }
+     }
+    }
+   }
+  },
+  "request": {
+   "facts": {
+    "kind": "work"
+   },
+   "reason": "restart",
+   "history": [
+    {
+     "attempt": "t.1",
+     "route_id": "opus-api",
+     "tier": "strong",
+     "class": "checkpoint"
+    }
+   ]
+  },
+  "expect": {
+   "tier": "strong",
+   "route_id": "opus-api",
+   "rules": [
+    "RT7"
+   ]
+  }
  }
 ]

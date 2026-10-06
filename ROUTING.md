@@ -1,7 +1,10 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-09-30 · rev 5 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
+**Status:** built · 2026-10-06 · rev 6 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
+
+**Changes in rev 6:**
+- Checkpoints (§4.5, §5): a worker that finishes the part of a task that needed its tier (a plan, a diagnosis), or finds it needs more, can end its attempt at a checkpoint. The launcher restarts it with the facts or hint as they now stand, so the tier is recomputed partway through a task, without switching models mid-attempt. New attempt-end class `checkpoint`; RT7 keeps the route when the tier is unchanged.
 
 **Changes in rev 5:**
 - Routes through the gateway (`via_gateway`), for backends a harness can't call directly (self-hosted chat-completions servers) and for API keys; health-checked pools fall back when their endpoint is down (§7, §8).
@@ -59,7 +62,7 @@ For each unit of work, it picks which model runs it. The goals:
   | `local` | a GPU running Ollama or vLLM | concurrent requests | queue length |
 
 - **Route table.** A pinned data file (`format: hive-route.table/1`, schema in `schemas/`): pools, routes, the ordered routes for each tier, the `fixed` mapping (§6) and the rule parameters (§4). Its pin is the SHA-256 of its canonical JSON with defaults filled in, so a default changing in a new router version also changes the pin.
-- **Unit of routing: one attempt.** A route is chosen when an attempt starts (a new task, a restart or a reassignment) and held until the attempt ends. There are no switches mid-attempt. A switch happens at a restart, whose context is rebuilt from the record.
+- **Unit of routing: one attempt.** A route is chosen when an attempt starts (a new task, a restart, a reassignment or a checkpoint) and held until the attempt ends. There are no switches mid-attempt. A switch happens at a restart, whose context is rebuilt from the record; a worker can ask for one at a checkpoint (§4.5).
 
 ---
 
@@ -150,11 +153,12 @@ Facts are often missing, especially `scope` and `specification` for tasks writte
 | RT4 | **Reviews use a different model family** from the author's attempt. |
 | RT5 | **Failures by class.** After a failed attempt the router acts on its failure class (§5), not on the fact that it failed. A request with `reason: reassign` excludes the previous route. |
 | RT6 | **Choose within the tier by the table's preference.** Skip pools whose known usage is above the soft threshold (default 80% of any limit) while others are available; unknown usage is not "above". Then order by the table's `prefer` setting: `order` (listed order; the default), `cost` (subscription and local routes first, as free; then metered routes by expected cost, from the request's token `estimate` and the route's price, or else the attempt's maximum cost), or `headroom` (most remaining capacity first, unknown last; spreads load across pools). Ties keep the listed order. |
-| RT7 | **Stay put when it works.** After an `interrupted`, `truncated`, `missing_info` or reconciled `indeterminate` attempt, the previous route is kept if it is still eligible and in the computed tier. |
+| RT7 | **Stay put when it works.** After an `interrupted`, `truncated`, `missing_info`, `checkpoint` or reconciled `indeterminate` attempt, the previous route is kept if it is still eligible and in the computed tier. |
 
 ### 4.5 Patterns the rules produce
 
 - **Plan strong, execute light.** A `plan` task produces an explicit plan and acceptance checks. The `work` tasks that implement it are then `explicit` and `independent`, so unless their scope is large they run `light`. A `light` worker that finds the plan wrong reports that through the record (blocked, needs a decision) rather than improvising on a stronger model.
+- **Checkpoints: the same within one task.** A worker can end its attempt at a milestone and ask for the next attempt to be routed again. *Down:* it has written and pinned a plan and the rest of the task is explicit, so `specification` becomes `explicit` (and `scope` may narrow) for the remaining attempts. *Up:* the task needs more than its tier, which becomes a hint with the worker's reason (a hint only raises). The worker's claims change only what it can know from the work: `specification` and `scope`. `verification`, `consequence` and `leverage` describe the task's stakes and stay as the task's creator set them. The handoff is a checkpoint report on the record, so the next attempt, on whichever model, starts from it. The launcher or supervisor checks the request, records it outside the worker's folder, and limits how many a task may make. If the tier doesn't change, RT7 keeps the route.
 - **Consultations.** A `consult` task asks a strong model one question: the decision, the alternatives, the evidence, and what a useful answer looks like. The answer is a decision or a plan with the conditions under which it becomes invalid. It needs no tools and does none of the work. Equivalent questions from different tasks are merged into one consultation. This is the cheapest way to buy strong judgment.
 
 ### 4.6 Learning from outcomes
@@ -188,6 +192,7 @@ Whoever handles the failed attempt (the runtime or the hive's supervisor) classi
 | `failed_check` | failed review or failed test | First time: same tier, with the feedback. Second time: one tier up, or a `consult` on the approach. |
 | `stalled` | no new evidence across two progress checks | The hive's supervisor or operator decides; "move up a tier" is one option. Ruling out a hypothesis counts as progress. |
 | `indeterminate` | timeout or crash after the call was sent, so it's unknown whether the provider ran it | Reconcile first, using the attempt id as the provider-side idempotency key where the provider supports one. Retry with a new attempt id only if the table allows the risk of paying twice (`indeterminate_retry`). Never record it as `failed`. |
+| `checkpoint` | the worker ended its attempt at a milestone and asked to be routed again (§4.5); not a failure | Recompute the tier from the facts as they now stand; the same route if the tier is unchanged (RT7). |
 | `interrupted` | the agent's process was lost or restarted for reasons that aren't the model's: killed, host restart, a supervisor restart after silence or a nudge | Same route (RT7). Not a reason to move route or tier. |
 
 Every attempt has a stable **attempt id**. It is passed downstream as the idempotency key wherever the gateway or provider supports one, so a retried request doesn't become a second paid call.
