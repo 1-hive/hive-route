@@ -14,6 +14,7 @@ from conftest import fixture_table, qualified
 
 from hiveroute.errors import RouteError
 from hiveroute.log import read, replay
+from hiveroute.observe import same_model
 from hiveroute.serve import Service, load_agents, make_server
 
 TABLE = fixture_table()
@@ -85,12 +86,13 @@ def test_tokens_and_ids(svc):
 def test_ended_episodes_become_the_tasks_history(svc):
     call(svc, "/route", {"task": "q", "episode": "e1", "facts": EXPLICIT})
     assert call(svc, "/route", {"task": "q", "episode": "e1"})[0] == 409     # one decision per episode
-    assert call(svc, "/episodes/end", {"episode": "e1", "class": "failed_check"})[1] == {"ok": True}
-    assert call(svc, "/episodes/end", {"episode": "e1", "class": "failed_check"})[0] == 409
-    assert call(svc, "/episodes/end", {"episode": "nope", "class": "outage"})[0] == 404
-    assert call(svc, "/episodes/end", {"episode": "e1", "class": "fine"})[0] == 400
+    end = {"class": "failed_check", "models": []}
+    assert call(svc, "/episodes/end", {"episode": "e1", **end})[1] == {"ok": True, "drift": []}
+    assert call(svc, "/episodes/end", {"episode": "e1", **end})[0] == 409
+    assert call(svc, "/episodes/end", {"episode": "nope", **end})[0] == 404
+    assert call(svc, "/episodes/end", {"episode": "e1", "class": "fine", "models": []})[0] == 400
     call(svc, "/route", {"task": "q", "episode": "e2", "facts": EXPLICIT})
-    call(svc, "/episodes/end", {"episode": "e2", "class": "failed_check"})
+    call(svc, "/episodes/end", {"episode": "e2", **end})
     _, d = call(svc, "/route", {"task": "q", "episode": "e3", "facts": EXPLICIT})
     # two failed checks on standard (light ran one tier up): one tier above, F8
     assert d["computed_tier"] == "strong" and "F8" in {r["rule"] for r in d["reasons"]}
@@ -106,3 +108,34 @@ def test_a_fact_both_fixed_and_per_episode_is_refused(tmp_path):
         "token_sha256": sha("t"), "kinds": ["work"], "facts": {"scope": "few"}}}}))
     with pytest.raises(RouteError, match="both fixed"):
         load_agents(f)
+
+
+def test_reported_models_are_checked_for_drift(svc, tmp_path):
+    _, d = call(svc, "/route", {"task": "q", "episode": "e1", "facts": EXPLICIT})
+    rid, model = d["route_id"], d["model"]
+    # a success: no class, the models the provider reported; a dated snapshot is the same model
+    assert call(svc, "/episodes/end", {"episode": "e1", "models": [model + "-20261001"]})[1] == \
+        {"ok": True, "drift": []}
+    _, d = call(svc, "/route", {"task": "q", "episode": "e2", "facts": EXPLICIT})
+    assert d["route_id"] == rid
+    assert call(svc, "/episodes/end", {"episode": "e2", "models": ["other-model"]})[1] == \
+        {"ok": True, "drift": ["other-model"]}
+    ev = [e for e in read(svc.log) if e["type"] == "route.drift_detected"]
+    assert len(ev) == 1 and ev[0]["data"]["source"] == "agent report"
+    quals = json.loads((tmp_path / "quals.json").read_text())
+    assert quals[rid]["status"] == "candidate"                  # demoted, as for attempts
+    _, d = call(svc, "/route", {"task": "q", "episode": "e3", "facts": EXPLICIT})
+    assert d["route_id"] != rid                                  # the next decision sees it
+    # a success isn't history: no failure class, no tier change
+    req = [e for e in read(svc.log) if e["type"] == "route.decided"][-1]["data"]["request"]
+    assert "history" not in req
+    assert call(svc, "/episodes/end", {"episode": "e3"})[0] == 400   # models is required
+
+
+def test_same_model():
+    assert same_model("anthropic/claude-opus-5-5", "claude-opus-5-5")
+    assert same_model("claude-opus-5-5", "claude-opus-5-5-20261001")
+    assert same_model("gpt-6-astra", "gpt-6-astra-2026-09-30")
+    assert not same_model("claude-opus-5-5", "claude-opus-4-6")
+    assert not same_model("claude-sonnet-5", "claude-sonnet-5-mini")   # not a snapshot
+    assert not same_model("anthropic/claude-opus-5-5", "openai/claude-opus-5-5x")

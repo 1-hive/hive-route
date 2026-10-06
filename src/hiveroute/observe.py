@@ -22,6 +22,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -76,7 +77,26 @@ def observed_models(manifest: dict, codex_root: str = CODEX_ROOT) -> set[str]:
     return set()
 
 
-def _demote(qualifications: str | None, route_id: str, route_pin: str, note: str) -> bool:
+def _bare(model: str) -> str:
+    """A model id without a provider prefix: OpenClaw names models provider/model, and a
+    provider reports them without it."""
+    return model.split("/", 1)[1] if "/" in model else model
+
+
+SNAPSHOT = re.compile(r"^-(\d{8}|\d{4}-\d{2}-\d{2})$")
+
+
+def same_model(pinned: str, reported: str) -> bool:
+    """Whether a reported model is the pinned one: equal, with or without a provider prefix,
+    or a dated snapshot of it (``claude-x-20261001`` for ``claude-x``; not ``claude-x-mini``)."""
+    for p in {pinned, _bare(pinned)}:
+        for r in {reported, _bare(reported)}:
+            if r == p or (r.startswith(p) and SNAPSHOT.match(r[len(p):])):
+                return True
+    return False
+
+
+def demote(qualifications: str | None, route_id: str, route_pin: str, note: str) -> bool:
     """Set a qualified route back to candidate. Returns whether anything changed."""
     if not qualifications:
         return False
@@ -116,7 +136,7 @@ def observe(manifests: list[str], log: str, qualifications: str | None = None,
                 "attempt": m["attempt"], "task": m["task"], "route_id": m["route_id"],
                 "route_pin": m["route_pin"], "pinned_model": m["model"],
                 "observed_models": sorted(observed), "manifest": str(path)})
-        _demote(qualifications, m["route_id"], m["route_pin"],
+        demote(qualifications, m["route_id"], m["route_pin"],
                 f"drift on {m['attempt']}: {', '.join(drifted)}")
         seen.add(m["attempt"])
         written.append(ev)

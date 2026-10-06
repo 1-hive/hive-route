@@ -44,6 +44,7 @@ from .canonical import UTC, digest, parse_time
 from .decide import check_route, decide, order_routes, pool_view
 from .errors import RouteError
 from .log import open_log, read
+from .observe import same_model
 from .table import TIERS, Table, rank, schema_error
 from .usage import Reading, period_bounds
 
@@ -372,11 +373,6 @@ def read_sessions(spec: dict, pid: str, table: Table, now: datetime) -> Reading 
 # --------------------------------------------------------------------------- #
 # drift
 # --------------------------------------------------------------------------- #
-def _same(requested: str, answered: str) -> bool:
-    """A provider may answer with a dated snapshot of the requested model."""
-    return answered == requested or answered.startswith(requested + "-")
-
-
 def observe(log: str, qualifications: str | None = None,
             warnings: list[str] | None = None) -> list[dict]:
     """Check the turns since the latest ``route.bound`` against it. One drift event per
@@ -407,7 +403,7 @@ def observe(log: str, qualifications: str | None = None,
             ref = _ref(t)
             if ref not in allowed:
                 bad.add(ref)
-            elif t["response_model"] and not _same(t["model"], t["response_model"]):
+            elif t["response_model"] and not same_model(t["model"], t["response_model"]):
                 bad.add(f"{t['provider']}/{t['response_model']}")
                 demote = demote or (ref, *by_ref[ref])
         if not bad:

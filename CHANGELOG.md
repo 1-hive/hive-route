@@ -4,10 +4,11 @@ What changed in each revision of hive-route, and what a hive running it needs to
 
 ## rev 8 — 2026-10-06
 
-- **The route service** (ROUTING.md §9.2, ADOPTING.md §10): `hive-route serve` answers `POST /route` at the start of each episode of an agent with its own loop (Iter), and takes `POST /episodes/end` with the episode's class. Facts at stake are fixed per agent in an agents file (`schemas/agents-v1.schema.json`, `examples/agents.yaml`); the agent states only `specification` and `scope` per episode. The service keeps each agent's episode history and logs every decision, which replays. Standard library only, no new dependency.
+- **The route service** (ROUTING.md §9.2, ADOPTING.md §10): `hive-route serve` answers `POST /route` at the start of each episode of an agent with its own loop (Iter), and takes `POST /episodes/end` with the episode's class. Facts at stake are fixed per agent in an agents file (`schemas/agents-v1.schema.json`, `examples/agents.yaml`); the agent states only `specification` and `scope` per episode. The service keeps each agent's episode history and logs every decision, which replays. Every episode's end reports the models the provider named; one that isn't the route's is drift (`route.drift_detected`, `source: agent report`) and demotes the route. Standard library only, no new dependency.
 - `decide` and the service share one path for scoring, deciding and logging.
+- Drift checks (bindings and the service) count only a **dated** snapshot as the same model (`claude-x-20261001`, `gpt-x-2026-09-30`); before, any suffix did, so `claude-x-mini` passed for `claude-x`.
 
-**Adopters:** nothing required. To route Iter agents per episode, add the hook in ADOPTING.md §10 and stop binding those agents.
+**Adopters:** nothing required; a bound agent answering with an undated variant of its model is now drift. To route Iter agents per episode, add the hook in ADOPTING.md §10 and stop binding those agents.
 
 ## rev 7 — 2026-10-06
 

@@ -6,11 +6,14 @@ episode ended. The service builds the request the way a launcher would: the agen
 facts (what's at stake in its role) from the agents file, which the agent can't edit; the
 facts it may state per episode (by default ``specification`` and ``scope``) from its call;
 and the task's history from the service's own record of earlier episodes. Every decision
-is logged like the CLI's, so it replays.
+is logged like the CLI's, so it replays. At each episode's end the agent reports the models
+the provider said answered; one that isn't the route's is drift (§3), logged and demoting
+the route, as for launched attempts.
 
     POST /route            {"task", "episode", "facts"?, "kind"?, "hint"?, "context_tokens"?,
                             "estimate"?, "tools_needed"?, "text"?}   -> the decision
-    POST /episodes/end     {"episode", "class", "limited_until"?}    -> {"ok": true}
+    POST /episodes/end     {"episode", "models", "class"?, "limited_until"?}
+                                                            -> {"ok": true, "drift": [...]}
     GET  /health                                                     -> table, mode
 
 Agents authenticate with a bearer token whose SHA-256 is in the agents file. Standard
@@ -34,6 +37,7 @@ from . import log as routelog
 from .canonical import UTC, format_time
 from .decide import decide
 from .errors import RouteError
+from .observe import demote, same_model
 from .scorer import apply, score
 from .table import Table, schema_error
 from .usage import collect
@@ -105,17 +109,23 @@ class History:
         out: dict[str, dict] = {}
         for x in self._lines(agent):
             if x["t"] == "decided":
-                out[x["attempt"]] = {k: x[k] for k in ("task", "route_id", "tier", "pool")}
+                out[x["attempt"]] = {k: x[k] for k in ("task", "route_id", "tier", "pool",
+                                                       "route_pin", "model") if k in x}
             elif x["t"] == "ended" and x["attempt"] in out:
-                out[x["attempt"]].update({k: x[k] for k in ("class", "limited_until") if k in x})
+                out[x["attempt"]].update({k: x[k] for k in ("class", "limited_until") if k in x},
+                                         ended=True)
         return out
 
     def decided(self, agent: str, attempt: str, d: dict) -> None:
         self._append(agent, {"t": "decided", "attempt": attempt, "task": d["task"],
-                             "route_id": d["route_id"], "tier": d["tier"], "pool": d["pool"]})
+                             "route_id": d["route_id"], "route_pin": d["route_pin"],
+                             "model": d["model"], "tier": d["tier"], "pool": d["pool"]})
 
-    def ended(self, agent: str, attempt: str, cls: str, limited_until: str | None) -> None:
-        line = {"t": "ended", "attempt": attempt, "class": cls}
+    def ended(self, agent: str, attempt: str, cls: str | None, limited_until: str | None,
+              models: list[str]) -> None:
+        line: dict = {"t": "ended", "attempt": attempt, "models": models}
+        if cls:
+            line["class"] = cls
         if limited_until:
             line["limited_until"] = limited_until
         self._append(agent, line)
@@ -180,7 +190,7 @@ class Service:
             tid = f"{agent}/{task}"
             history = [{"attempt": k, **{f: v[f] for f in ("route_id", "tier", "pool", "class",
                                                             "limited_until") if f in v}}
-                       for k, v in episodes.items() if v["task"] == tid and "class" in v]
+                       for k, v in episodes.items() if v["task"] == tid and v.get("class")]
             request = {"task": tid, "attempt": attempt,
                        "reason": "restart" if any(v["task"] == tid for v in episodes.values())
                        else "new",
@@ -202,10 +212,19 @@ class Service:
         return decision
 
     def end(self, agent: str, body: dict) -> dict:
-        episode, cls = body.get("episode"), body.get("class")
-        if not (isinstance(episode, str) and ID.match(episode)) or cls not in CLASSES:
-            raise RouteError("REQUEST_INVALID", "episode and a class (" + ", ".join(CLASSES)
-                             + ") are required")
+        episode, cls, models = body.get("episode"), body.get("class"), body.get("models")
+        if not (isinstance(episode, str) and ID.match(episode)):
+            raise RouteError("REQUEST_INVALID", "episode must match " + ID.pattern)
+        if cls is not None and cls not in CLASSES:
+            raise RouteError("REQUEST_INVALID", "class, when the episode didn't simply "
+                             "succeed, is one of " + ", ".join(CLASSES))
+        if not (isinstance(models, list) and len(models) <= 32
+                and all(isinstance(m, str) and 0 < len(m) <= 200 for m in models)):
+            raise RouteError("REQUEST_INVALID", "models: the model names the provider reported "
+                             "for the episode's calls (a list, empty if none answered)")
+        unknown = set(body) - {"episode", "class", "limited_until", "models"}
+        if unknown:
+            raise RouteError("REQUEST_INVALID", f"unknown fields: {', '.join(sorted(unknown))}")
         lu = body.get("limited_until")
         if lu is not None and cls != "capacity":
             raise RouteError("REQUEST_INVALID", "limited_until goes with class capacity")
@@ -214,10 +233,33 @@ class Service:
             ep = self.history.episodes(agent).get(attempt)
             if ep is None:
                 raise RouteError("NOT_FOUND", f"no routed episode {episode}")
-            if "class" in ep:
+            if ep.get("ended"):
                 raise RouteError("CONFLICT", f"episode {episode} already ended")
-            self.history.ended(agent, attempt, cls, lu)
-        return {"ok": True}
+            self.history.ended(agent, attempt, cls, lu, sorted(set(models)))
+            drift = self._drift(attempt, ep, models)
+        return {"ok": True, "drift": drift}
+
+    def _drift(self, attempt: str, ep: dict, models: list[str]) -> list[str]:
+        """Reported models that aren't the route's (§3): logged once, and the route goes back
+        to candidate. A harness's own auxiliary models (the sources' ``aux_models``) and the
+        route's gateway alias (its id, §8) aren't drift."""
+        route = self.table.routes.get(ep["route_id"], {})
+        harness = (self.sources or {}).get("harnesses", {}).get(route.get("harness"), {})
+        pinned = ep.get("model") or route.get("model", "")
+        pin = ep.get("route_pin") or self.table.route_pin(ep["route_id"])
+        allowed = {ep["route_id"], *harness.get("aux_models", ())}
+        bad = sorted({m for m in models if m not in allowed and not same_model(pinned, m)})
+        if not bad:
+            return []
+        with routelog.open_log(self.log) as w:
+            w.append("route.drift_detected", {
+                "attempt": attempt, "task": ep["task"], "route_id": ep["route_id"],
+                "route_pin": pin, "pinned_model": pinned,
+                "observed_models": sorted(set(models)), "source": "agent report"})
+        demote((self.sources or {}).get("qualifications"), ep["route_id"], pin,
+               f"drift on {attempt}: {', '.join(bad)} (agent report)")
+        self._state = None   # the next decision sees the demotion
+        return bad
 
     def health(self) -> dict:
         return {"ok": True, "table": self.table.pin, "mode": self.mode()}
