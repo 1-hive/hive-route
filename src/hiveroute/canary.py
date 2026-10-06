@@ -80,6 +80,10 @@ def run_case(route_id: str, route: dict, case: dict, root: Path, harness: dict, 
             raise RouteError("SOURCES_INVALID", f"{route_id} is via_gateway; no gateway section")
         values.update(gateway_url=gateway["url"], key_env=gateway["key_env"],
                       gateway_key=env_value(gateway["key_env"], gateway.get("env_file")) or "")
+    for host, seen in harness.get("path_map", {}).items():   # the harness sees another path
+        if values["cwd"] == host or values["cwd"].startswith(host.rstrip("/") + "/"):
+            values["cwd"] = seen.rstrip("/") + values["cwd"][len(host.rstrip("/")):]
+            break
     argv = _fill(harness["argv"], values)
     if via:
         argv += _fill(harness.get("gateway_args", []), values)

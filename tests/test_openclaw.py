@@ -268,5 +268,33 @@ def test_cli_writes_patches_and_checks(tmp_path, capsys):
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out["results"]["cosmo"]["primary"] == "anthropic/claude-opus-5-5"
-    written = json.loads((tmp_path / "out" / "openclaw.patch.json").read_text())
+    written = json.loads((tmp_path / "out" / out["patch_files"][str(cfg)]).read_text())
     assert written == out["patches"][str(cfg)]
+
+
+def test_patch_names_are_unique_per_config():
+    a, b = openclaw.patch_name("/hive/a/openclaw.json"), openclaw.patch_name("/hive/b/openclaw.json")
+    assert a != b and a == "hive_a_openclaw.json.patch.json"
+
+
+def test_compare_config_says_whether_it_would_change():
+    res = openclaw.render(TABLE, bindings(), state(), "live")["results"]["cosmo"]
+    same = {"agents": {"defaults": {"model": {"primary": "anthropic/claude-opus-5-5",
+                                              "fallbacks": ["openai/gpt-5.6-sol"]}}}}
+    assert openclaw.compare_config(same, res) == []
+    other = {"agents": {"defaults": {"model": "anthropic/claude-opus-4-6"}}}
+    assert openclaw.compare_config(other, res) == [
+        "primary anthropic/claude-opus-4-6 -> anthropic/claude-opus-5-5",
+        "fallbacks [] -> ['openai/gpt-5.6-sol']"]
+
+
+def test_an_unreadable_database_is_reported_and_spend_stays_unknown(tmp_path):
+    bad = tmp_path / "bad.sqlite"
+    bad.write_text("not a database")
+    r = openclaw.read_sessions({"paths": [str(bad), str(tmp_path / "none-*.sqlite")]},
+                               "sc-api", TABLE, NOW)
+    assert "problems" in r.source and "no database matches" in r.source
+    assert "usd/day" not in r.windows
+    log = bound_log(tmp_path, str(bad))
+    warnings: list[str] = []
+    assert openclaw.observe(log, None, warnings) == [] and warnings

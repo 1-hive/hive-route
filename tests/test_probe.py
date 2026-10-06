@@ -8,6 +8,7 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from conftest import FIXTURES
 
@@ -68,3 +69,15 @@ def test_cli(tmp_path, capsys):
     assert main(["probe", str(f)]) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("p: ran (no earlier probe): exit 0") and out[1] == "p: not due"
+
+
+def test_probe_env_from_a_file(tmp_path):
+    secrets = tmp_path / "token.env"
+    secrets.write_text("PROBE_TOKEN=s3cret\n")
+    s = {"argv": [sys.executable, "-c", "import os; print(os.environ['PROBE_TOKEN'] == 's3cret')"],
+         "output_dir": str(tmp_path / "p"), "env_from": ["PROBE_TOKEN"], "env_file": str(secrets)}
+    r = probe_all({"probes": {"p": s}}, datetime.now(UTC))["p"]
+    assert r["exit"] == 0 and Path(r["output"]).read_text().strip() == "True"
+    s["env_file"] = str(tmp_path / "missing.env")
+    r = probe_all({"probes": {"p": s}}, datetime.now(UTC), force=True)["p"]
+    assert "not found" in str(r["exit"])

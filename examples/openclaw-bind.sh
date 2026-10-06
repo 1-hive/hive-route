@@ -38,12 +38,11 @@ OUT=$(hr openclaw-config "$TABLE" "$BINDINGS" --sources "$SOURCES" --log "$LOG" 
 [ "$RC" -eq 0 ] || { echo "openclaw-config: exit $RC; nothing applied" >&2; exit "$RC"; }
 
 # Apply each config's patch once: only when it differs from the one applied last.
-jq -r '.patches | keys[]' <<<"$OUT" | while read -r CONFIG; do
-  NAME=$(basename "$CONFIG" .json)
-  P=$STATE/patches/$NAME.patch.json
-  if ! cmp -s "$P" "$STATE/applied/$NAME.patch.json"; then
+jq -r '.patch_files | to_entries[] | "\(.key)\t\(.value)"' <<<"$OUT" | while IFS=$'\t' read -r CONFIG NAME; do
+  P=$STATE/patches/$NAME
+  if ! cmp -s "$P" "$STATE/applied/$NAME"; then
     if apply "$CONFIG" "$P"; then
-      cp "$P" "$STATE/applied/$NAME.patch.json"
+      cp "$P" "$STATE/applied/$NAME"
       echo "applied: $CONFIG"
     else
       echo "not applied (OpenClaw refused it): $CONFIG" >&2
@@ -51,4 +50,5 @@ jq -r '.patches | keys[]' <<<"$OUT" | while read -r CONFIG; do
   fi
 done
 
-hr openclaw-observe "$LOG" --sources "$SOURCES" || echo "drift detected; see $LOG" >&2
+# exit 4: drift (see the log); exit 10: a session database couldn't be read
+hr openclaw-observe "$LOG" --sources "$SOURCES" || echo "openclaw-observe: exit $?" >&2

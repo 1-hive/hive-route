@@ -148,3 +148,35 @@ def test_relative_suite_path_resolves(monkeypatch):
     root, _, pin = load_suite("canaries/starter")
     assert root.is_absolute()
     assert pin == load_suite(root)[2]
+
+
+OPENCLAW_FAKE = """
+import json, pathlib, sys
+model, cwd, seen_prefix, host_prefix = sys.argv[1:5]
+assert cwd.startswith(seen_prefix), cwd           # the harness got the path it sees
+real = pathlib.Path(host_prefix + cwd[len(seen_prefix):])
+(real / "done.txt").write_text("done")
+provider, name = model.split("/", 1)
+print("log line")
+print(json.dumps({"ok": True, "status": "ok", "provider": provider, "model": name}, indent=2))
+"""
+
+
+def test_openclaw_canary_with_a_path_map(tmp_path, capsys):
+    from conftest import FIXTURES
+    table = str(FIXTURES / "tables" / "openclaw.yaml")
+    suite, _, log = setup(tmp_path, "ok")
+    fake = tmp_path / "oc.py"
+    fake.write_text(OPENCLAW_FAKE)
+    host, seen = str(tmp_path / "work"), "/hive/canary"
+    sources = tmp_path / "oc-sources.yaml"
+    sources.write_text(json.dumps({
+        "format": "hive-route.sources/1", "qualifications": str(tmp_path / "q.json"),
+        "canary_workdir": host,
+        "harnesses": {"openclaw": {"argv": [sys.executable, str(fake), "{model}", "{cwd}", seen, host],
+                                   "path_map": {host: seen}}}}))
+    assert main(["canary", "run", table, "oc-opus", "--suite", suite,
+                 "--sources", str(sources), "--log", log]) == 0
+    q = json.loads((tmp_path / "q.json").read_text())["oc-opus"]
+    assert q["status"] == "qualified"
+    assert q["results"][0]["observed_models"] == ["anthropic/claude-opus-5-5"]

@@ -137,6 +137,14 @@
               "type": "string"
             },
             "description": "Environment for a via_gateway route; values may use {gateway_url} and {gateway_key}."
+          },
+          "path_map": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Canaries: host path prefix -> the prefix the harness sees (e.g. inside a container), applied to {cwd}. The check still runs on the host path."
           }
         }
       }
@@ -208,6 +216,26 @@
             "type": "integer",
             "minimum": 1,
             "description": "Probe files kept (default 20)."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Fixed, non-secret environment for the probe."
+          },
+          "env_from": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*$"
+            },
+            "description": "Variables set from env_file (secrets such as CLAUDE_CODE_OAUTH_TOKEN), so the probe uses the agents' subscription."
+          },
+          "env_file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A KEY=value file holding the env_from variables; read at each run, never copied."
           }
         }
       }

@@ -151,7 +151,8 @@ def render(table: Table, bindings: dict, state: dict, mode: str) -> dict:
         node["model"] = {"primary": refs[0], "fallbacks": refs[1:]}
         node.setdefault("models", {}).update({r: {} for r in refs})
     return {"table": table.pin, "mode": mode, "as_of": stamp, "results": results,
-            "patches": patches, "digest": digest({"results": results, "patches": patches})}
+            "patches": patches, "patch_files": {c: patch_name(c) for c in patches},
+            "digest": digest({"results": results, "patches": patches})}
 
 
 def check_config(config: dict, result: dict) -> list[str]:
@@ -167,6 +168,29 @@ def check_config(config: dict, result: dict) -> list[str]:
         if providers and ref.split("/", 1)[0] not in providers:
             problems.append(f"{ref}: provider {ref.split('/', 1)[0]} is not configured")
     return problems
+
+
+def compare_config(config: dict, result: dict) -> list[str]:
+    """How applying the binding would change the config's model settings for its target;
+    empty when it matches what the agent runs now."""
+    node: object = config
+    for key in _target({"target": result["target"]}):
+        node = node.get(key) if isinstance(node, dict) else None
+    current = (node or {}).get("model") if isinstance(node, dict) else None
+    if isinstance(current, str):
+        current = {"primary": current}
+    current = current or {}
+    out = []
+    if current.get("primary") != result["primary"]:
+        out.append(f"primary {current.get('primary')} -> {result['primary']}")
+    if (current.get("fallbacks") or []) != result["fallbacks"]:
+        out.append(f"fallbacks {current.get('fallbacks') or []} -> {result['fallbacks']}")
+    return out
+
+
+def patch_name(config: str) -> str:
+    """A patch file's name, unique per config file: every OpenClaw config is openclaw.json."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", config.strip("/")) + ".patch.json"
 
 
 def bind(table: Table, bindings: dict, state: dict, mode: str, log: str | None) -> tuple[dict, bool]:
@@ -224,23 +248,31 @@ def _paths(patterns: list[str]) -> list[str]:
     return sorted(out)
 
 
-def turns(patterns: list[str], since: datetime) -> list[dict]:
+def scan(patterns: list[str], since: datetime) -> tuple[list[dict], list[str]]:
     """Assistant turns at or after ``since`` across OpenClaw agent session databases,
-    oldest first: ``{at, provider, model, response_model, stop, error, usage, db}``.
-    Databases are opened read-only."""
+    oldest first: ``{at, provider, model, response_model, stop, error, usage, db}``, and the
+    problems reading them: a pattern no database matches, a database that can't be read,
+    events that couldn't be decompressed. A problem is never silent: an unreadable database
+    must not look like an idle agent. Databases are opened read-only."""
     since_ms = since.timestamp() * 1000
-    out = []
+    out, problems = [], []
+    for pat in patterns:
+        if not _paths([pat]):
+            problems.append(f"no database matches {pat}")
     for path in _paths(patterns):
         try:
             con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
             rows = con.execute("select event_json, event_zstd from transcript_events").fetchall()
             con.close()
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            problems.append(f"{path}: {e}")
             continue
+        undecoded = 0
         for ej, blob in rows:
             if ej is None:
                 raw = _zstd(blob) if blob else None
                 if raw is None:
+                    undecoded += 1
                     continue
                 ej = raw.decode("utf-8", "replace")
             if '"assistant"' not in ej:
@@ -258,7 +290,13 @@ def turns(patterns: list[str], since: datetime) -> list[dict]:
                         "model": m["model"], "response_model": m.get("responseModel"),
                         "stop": m.get("stopReason"), "error": str(m.get("errorMessage") or ""),
                         "usage": m.get("usage") or {}, "db": path})
-    return sorted(out, key=lambda t: t["at"])
+        if undecoded:
+            problems.append(f"{path}: {undecoded} compressed events not decoded (install zstd)")
+    return sorted(out, key=lambda t: t["at"]), problems
+
+
+def turns(patterns: list[str], since: datetime) -> list[dict]:
+    return scan(patterns, since)[0]
 
 
 def _ref(t: dict) -> str:
@@ -276,11 +314,13 @@ def read_sessions(spec: dict, pid: str, table: Table, now: datetime) -> Reading 
     starts = [period_bounds(p, now)[0] for p in pers]
     down = timedelta(minutes=spec.get("down_minutes", 30))
     since = min([*starts, now - down])
-    ts = [t for t in turns(spec["paths"], since) if _ref(t) in models]
-    r = Reading(observed_at=now, source=f"{len(ts)} turns in {len(_paths(spec['paths']))} databases")
+    found, problems = scan(spec["paths"], since)
+    ts = [t for t in found if _ref(t) in models]
+    r = Reading(observed_at=now, source=f"{len(ts)} turns in {len(_paths(spec['paths']))} databases"
+                + (f"; problems: {'; '.join(problems)}" if problems else ""))
     for lim in limits:
-        if lim.get("per") not in ("day", "week", "month"):
-            continue
+        if lim.get("per") not in ("day", "week", "month") or problems:
+            continue  # with a database unread, spend stays unknown (and blocks the pool)
         start, reset = period_bounds(lim["per"], now)
         inside = [t for t in ts if t["at"] >= start]
         if "usd" in lim:
@@ -306,10 +346,11 @@ def _same(requested: str, answered: str) -> bool:
     return answered == requested or answered.startswith(requested + "-")
 
 
-def observe(log: str, qualifications: str | None = None) -> list[dict]:
+def observe(log: str, qualifications: str | None = None,
+            warnings: list[str] | None = None) -> list[dict]:
     """Check the turns since the latest ``route.bound`` against it. One drift event per
     binding per binding version; a provider answering with another model demotes the route
-    (as for attempts, §3)."""
+    (as for attempts, §3). Databases that couldn't be read are added to ``warnings``."""
     bound = [e for e in read(log) if e["type"] == "route.bound"]
     if not bound:
         return []
@@ -326,7 +367,10 @@ def observe(log: str, qualifications: str | None = None) -> list[dict]:
         by_ref = dict(zip([res["primary"], *res["fallbacks"]],
                           zip(res["routes"], res["route_pins"], strict=True), strict=True))
         bad, demote = set(), None
-        for t in turns(b["sessions"], since):
+        found, problems = scan(b["sessions"], since)
+        if warnings is not None:
+            warnings += [f"{name}: {p}" for p in problems]
+        for t in found:
             if t["stop"] == "error":
                 continue
             ref = _ref(t)

@@ -13,6 +13,11 @@ A probe draws on the pool it measures, so it runs only when it's useful: no soon
 those files changed since then (the agents used something). Each run writes a new file
 ``<output_dir>/probe-<time>.jsonl``, which the pool's reader picks up (list ``output_dir`` in
 its ``paths``), and only the newest ``keep`` files are kept.
+
+The probe must draw on the same subscription as the agents. Where the agents use a token
+(a Claude Code setup-token, say), ``env_from`` names the variables to set from
+``env_file`` (KEY=value lines), e.g. ``CLAUDE_CODE_OAUTH_TOKEN``; they're read at each run
+and never written anywhere. ``env`` sets fixed, non-secret variables.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .canonical import UTC
+from .usage import env_value
 
 
 def _latest_probe(out: Path) -> datetime | None:
@@ -62,10 +68,16 @@ def run(spec: dict, now: datetime) -> dict:
     out = Path(os.path.expanduser(spec["output_dir"]))
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"probe-{now.strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    env = {**os.environ, **spec.get("env", {})}
+    for var in spec.get("env_from", []):   # secrets: read now, never logged or stored
+        value = env_value(var, spec.get("env_file"))
+        if value is None:
+            return {"output": str(path), "exit": f"{var} not found in env_file"}
+        env[var] = value
     try:
         with open(path, "w") as f:
             r = subprocess.run(spec["argv"], stdout=f, stderr=subprocess.DEVNULL,
-                               stdin=subprocess.DEVNULL, cwd=out,
+                               stdin=subprocess.DEVNULL, cwd=out, env=env,
                                timeout=spec.get("timeout_seconds", 120))
         code: int | str = r.returncode
     except subprocess.TimeoutExpired:

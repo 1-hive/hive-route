@@ -139,7 +139,8 @@ def _parser() -> argparse.ArgumentParser:
     oc.add_argument("--write-dir", help="also write each config's patch to "
                     "DIR/<config name>.patch.json")
     oc.add_argument("--check", action="store_true", help="check the patches against the "
-                    "config files they're for (allow list, providers); exit 8 on a problem")
+                    "config files they're for: say whether each binding matches what the agent "
+                    "runs now, and exit 8 on a model the config can't use (allow list, providers)")
 
     oo = sub.add_parser("openclaw-observe", help="check OpenClaw agents' turns since the latest "
                         "binding for drift (§9.3)")
@@ -324,7 +325,7 @@ def _run(args: argparse.Namespace) -> int:
             d = Path(args.write_dir)
             d.mkdir(parents=True, exist_ok=True)
             for cfg, patch in out["patches"].items():
-                f = d / f"{Path(cfg).stem}.patch.json"
+                f = d / out["patch_files"][cfg]
                 tmp = f.with_suffix(".tmp")
                 tmp.write_text(json.dumps(patch, indent=2) + "\n")
                 tmp.replace(f)
@@ -339,6 +340,10 @@ def _run(args: argparse.Namespace) -> int:
                     problems.append(f"{name}: {res['config']}: {e}")
                     continue
                 problems += [f"{name}: {p}" for p in openclaw.check_config(cfg, res)]
+                diff = openclaw.compare_config(cfg, res)
+                print(f"check: {name}: " + ("matches the config" if not diff
+                                            else "would change " + "; ".join(diff)),
+                      file=sys.stderr)
         for p in problems:
             print(f"check: {p}", file=sys.stderr)
         return 8 if problems else 0
@@ -346,12 +351,15 @@ def _run(args: argparse.Namespace) -> int:
     if args.cmd == "openclaw-observe":
         from . import openclaw
         src = load_sources(args.sources) if args.sources else {}
-        events = openclaw.observe(args.log, src.get("qualifications"))
+        warnings: list[str] = []
+        events = openclaw.observe(args.log, src.get("qualifications"), warnings)
+        for w in warnings:
+            print(f"hive-route: couldn't check: {w}", file=sys.stderr)
         for ev in events:
             d = ev["data"]
             print(f"drift: {d['binding']} on {d['route_id']}: bound {d['pinned_model']}, "
                   f"reported {', '.join(d['observed_models'])}")
-        return 4 if events else 0
+        return 4 if events else 10 if warnings else 0
 
     if args.cmd == "probe":
         from .probe import probe_all

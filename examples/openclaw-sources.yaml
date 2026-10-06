@@ -18,20 +18,31 @@ pools:
     - reader: codex-sessions
       paths: [/opt/hive/*/state/agents/*/agent/codex-home/sessions]
   sc-api:
+    # metered: billed per use (a pay-as-you-go key). A flat-rate or free endpoint whose
+    # limit is capacity, not money, is better a local-kind pool with a concurrency limit.
     - reader: openclaw-sessions     # spend per day, from the turns' recorded cost
       paths: [/opt/hive/*/state/agents/*/agent/openclaw-agent.sqlite]
 probes:
-  # A one-line Claude Code call on the same subscription: its stream-json output carries
+  # A one-line Claude Code call on the agents' subscription: its stream-json output carries
   # the 5-hour and 7-day window shares. Hourly at most, and only after the agents ran.
-  # Claude Code uses CLAUDE_CODE_OAUTH_TOKEN, if your agents' token is a setup-token.
+  # It must use the agents' subscription, not the login of whoever runs the router: with a
+  # setup-token, give Claude Code the agents' token through CLAUDE_CODE_OAUTH_TOKEN, read
+  # from a root-only file at each run (or run the probe where the agents' login is).
   claude-plan:
     argv: [claude, -p, "Reply with OK", --model, claude-haiku-4-5, --output-format, stream-json,
            --verbose, --max-turns, "1"]
     output_dir: ~/hive/route/probes/claude-plan
     every_minutes: 60
     active_paths: [/opt/hive/*/state/agents/*/agent/openclaw-agent.sqlite-wal]
+    env_from: [CLAUDE_CODE_OAUTH_TOKEN]
+    env_file: /etc/hive-route/claude-probe.env
+canary_workdir: /opt/hive/canary          # writable by the harness, as the agent's user
 harnesses:
   openclaw:
-    argv: [openclaw, agent, exec, --model, "{model}", --cwd, "{cwd}", --json, --message-file, "-"]
+    # Agents in a container: run the canary there, as the agent's user. path_map turns the
+    # host's work folder into the path the container sees (checks still run on the host).
+    argv: [docker, exec, -i, -u, "11001", agents, openclaw, agent, exec, --model, "{model}",
+           --cwd, "{cwd}", --json, --message-file, "-"]
     stdin: true
     effort_args: [--thinking, "{effort}"]
+    path_map: {/opt/hive/canary: /hive/canary}
