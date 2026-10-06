@@ -22,6 +22,7 @@ library only; bind it to loopback or a private network.
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import hmac
 import json
@@ -58,10 +59,16 @@ def load_agents(path: str | Path) -> dict:
     if err:
         raise RouteError("AGENTS_INVALID", err)
     for name, a in raw["agents"].items():
-        both = set(a.get("facts", {})) & set(a.get("episode_facts", DEFAULT_EPISODE_FACTS))
-        if both:
-            raise RouteError("AGENTS_INVALID", f"{name}: {', '.join(sorted(both))} both fixed "
-                             "and stated per episode")
+        fixed = set(a.get("facts", {}))
+        for key, what in (("episode_facts", "stated per episode"),
+                          ("runner_facts", "stated by the runner")):
+            both = fixed & set(a.get(key, DEFAULT_EPISODE_FACTS if key == "episode_facts" else ()))
+            if both:
+                raise RouteError("AGENTS_INVALID", f"{name}: {', '.join(sorted(both))} both fixed "
+                                 f"and {what}")
+        if bool(a.get("runner_facts")) != ("runner_token_sha256" in a):
+            raise RouteError("AGENTS_INVALID", f"{name}: runner_facts and runner_token_sha256 go "
+                             "together")
     return raw
 
 
@@ -116,8 +123,8 @@ class History:
                                          ended=True)
         return out
 
-    def decided(self, agent: str, attempt: str, d: dict) -> None:
-        self._append(agent, {"t": "decided", "attempt": attempt, "task": d["task"],
+    def decided(self, agent: str, attempt: str, d: dict, by: str) -> None:
+        self._append(agent, {"t": "decided", "attempt": attempt, "task": d["task"], "by": by,
                              "route_id": d["route_id"], "route_pin": d["route_pin"],
                              "model": d["model"], "tier": d["tier"], "pool": d["pool"]})
 
@@ -141,13 +148,17 @@ class Service:
         self._state: tuple[datetime, dict] | None = None
 
     # ------------------------------------------------------------------ helpers
-    def agent_for(self, auth: str | None) -> str:
+    def agent_for(self, auth: str | None) -> tuple[str, bool]:
+        """The agent a token belongs to, and whether it's the agent's runner (a trusted
+        component outside the agent, e.g. the process that admits its requests)."""
         token = auth[7:].strip() if auth and auth.startswith("Bearer ") else ""
         if token:
             digest = hashlib.sha256(token.encode()).hexdigest()
             for name, a in self.agents.items():
                 if hmac.compare_digest(digest, a["token_sha256"]):
-                    return name
+                    return name, False
+                if hmac.compare_digest(digest, a.get("runner_token_sha256", "")):
+                    return name, True
         raise RouteError("UNAUTHORIZED", "a valid bearer token is required")
 
     def state(self, now: datetime) -> dict:
@@ -161,7 +172,7 @@ class Service:
         return self.fixed_mode or routelog.current_mode(self.log) or "live"
 
     # ------------------------------------------------------------------ endpoints
-    def route(self, agent: str, body: dict) -> dict:
+    def route(self, agent: str, body: dict, runner: bool = False) -> dict:
         a = self.agents[agent]
         task, episode = body.get("task"), body.get("episode")
         if not (isinstance(task, str) and ID.match(task) and isinstance(episode, str)
@@ -176,9 +187,11 @@ class Service:
             raise RouteError("REQUEST_INVALID", f"kind {kind!r} is not one of this agent's")
         stated = body.get("facts") or {}
         allowed = set(a.get("episode_facts", DEFAULT_EPISODE_FACTS))
+        if runner:
+            allowed |= set(a.get("runner_facts", ()))
         if not isinstance(stated, dict) or set(stated) - allowed:
-            raise RouteError("REQUEST_INVALID", "an episode may state only "
-                             + ", ".join(sorted(allowed)))
+            raise RouteError("REQUEST_INVALID", ("the runner" if runner else "the agent")
+                             + " may state only " + ", ".join(sorted(allowed)))
         text = body.get("text")
         if text is not None and not isinstance(text, str):
             raise RouteError("REQUEST_INVALID", "text must be a string")
@@ -208,7 +221,7 @@ class Service:
             decision = run_decision(self.table, request, self.state(now), self.mode(),
                                     self.log, text)
             if decision["decision"] == "route":
-                self.history.decided(agent, attempt, decision)
+                self.history.decided(agent, attempt, decision, "runner" if runner else "agent")
         return decision
 
     def end(self, agent: str, body: dict) -> dict:
@@ -242,13 +255,17 @@ class Service:
     def _drift(self, attempt: str, ep: dict, models: list[str]) -> list[str]:
         """Reported models that aren't the route's (§3): logged once, and the route goes back
         to candidate. A harness's own auxiliary models (the sources' ``aux_models``) and the
-        route's gateway alias (its id, §8) aren't drift."""
+        route's gateway alias (its id, §8) aren't drift, nor names the agents file says aren't
+        models (``ignore_models``, e.g. a gateway's agent target)."""
         route = self.table.routes.get(ep["route_id"], {})
         harness = (self.sources or {}).get("harnesses", {}).get(route.get("harness"), {})
         pinned = ep.get("model") or route.get("model", "")
         pin = ep.get("route_pin") or self.table.route_pin(ep["route_id"])
         allowed = {ep["route_id"], *harness.get("aux_models", ())}
-        bad = sorted({m for m in models if m not in allowed and not same_model(pinned, m)})
+        agent = attempt.split(".", 1)[0]
+        ignore = self.agents.get(agent, {}).get("ignore_models", ())
+        bad = sorted({m for m in models if m not in allowed and not same_model(pinned, m)
+                      and not any(fnmatch.fnmatchcase(m, g) for g in ignore)})
         if not bad:
             return []
         with routelog.open_log(self.log) as w:
@@ -297,9 +314,9 @@ def handler(svc: Service) -> type[BaseHTTPRequestHandler]:
                 body = json.loads(self.rfile.read(n) or b"{}")
                 if not isinstance(body, dict):
                     raise RouteError("REQUEST_INVALID", "the body must be a JSON object")
-                agent = svc.agent_for(self.headers.get("Authorization"))
+                agent, runner = svc.agent_for(self.headers.get("Authorization"))
                 if self.path == "/route":
-                    self._send(200, svc.route(agent, body))
+                    self._send(200, svc.route(agent, body, runner))
                 elif self.path == "/episodes/end":
                     self._send(200, svc.end(agent, body))
                 else:

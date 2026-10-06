@@ -18,3 +18,12 @@ agents:
     token_sha256: "1111111111111111111111111111111111111111111111111111111111111111"
     kinds: [work]
     facts: {verification: none, consequence: reversible, leverage: 0}
+  # A general agent: chat and code pushes. Its runner (the process that admits requests and grants
+  # their tools) states consequence per episode; the agent states specification and scope.
+  iter-general:
+    token_sha256: "2222222222222222222222222222222222222222222222222222222222222222"
+    runner_token_sha256: "3333333333333333333333333333333333333333333333333333333333333333"
+    runner_facts: [consequence]
+    kinds: [work]
+    facts: {verification: none, leverage: 0}
+    ignore_models: ["openclaw/*"]   # the gateway's agent target, not a model

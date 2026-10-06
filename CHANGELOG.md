@@ -2,6 +2,17 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 9 — 2026-10-06
+
+From the first review of the route service by an adopter (Iter on an OpenClaw gateway).
+
+- **Runner facts:** an agent may have a runner, a trusted component outside it with its own token (`runner_token_sha256`), which may state `runner_facts` per episode, e.g. `consequence` from the tools it grants. For general agents whose stakes vary per request.
+- **`ignore_models`** per agent: names an episode report may hold that aren't models (a gateway's agent target, `openclaw/*`), never drift.
+- **Hook contract** (ADOPTING.md §10): report the model that *served* each call, not a gateway's `model` field; end an episode at once on a rate limit or outage and route a new one; fail open to the configured chain when the service is down, logged locally, with no `/episodes/end`; binding the service for agents in containers.
+- `openclaw-config` without `--mode` or a logged mode warns that it renders live mode; ADOPTING §9 step 4 passes `--log` (or `--mode fixed`).
+
+**Adopters:** nothing required. Served agents that relied on a gateway's `model` field should report the served model instead, or list the gateway's names in `ignore_models`.
+
 ## rev 8 — 2026-10-06
 
 - **The route service** (ROUTING.md §9.2, ADOPTING.md §10): `hive-route serve` answers `POST /route` at the start of each episode of an agent with its own loop (Iter), and takes `POST /episodes/end` with the episode's class. Facts at stake are fixed per agent in an agents file (`schemas/agents-v1.schema.json`, `examples/agents.yaml`); the agent states only `specification` and `scope` per episode. The service keeps each agent's episode history and logs every decision, which replays. Every episode's end reports the models the provider named; one that isn't the route's is drift (`route.drift_detected`, `source: agent report`) and demotes the route. Standard library only, no new dependency.

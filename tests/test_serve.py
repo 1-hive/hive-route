@@ -32,7 +32,10 @@ def svc(tmp_path):
         "iter-a": {"token_sha256": sha("tok-a"), "kinds": ["work", "consult"],
                    "facts": {"verification": "independent", "consequence": "reversible",
                              "leverage": 0}},
-        "iter-b": {"token_sha256": sha("tok-b"), "kinds": ["work"]}}}))
+        "iter-b": {"token_sha256": sha("tok-b"), "kinds": ["work"],
+                   "facts": {"verification": "none", "leverage": 0},
+                   "runner_token_sha256": sha("run-b"), "runner_facts": ["consequence"],
+                   "ignore_models": ["openclaw/*"]}}}))
     quals = tmp_path / "quals.json"
     quals.write_text(json.dumps(qualified(TABLE)))
     sources = {"format": "hive-route.sources/1", "qualifications": str(quals)}
@@ -139,3 +142,24 @@ def test_same_model():
     assert not same_model("claude-opus-5-5", "claude-opus-4-6")
     assert not same_model("claude-sonnet-5", "claude-sonnet-5-mini")   # not a snapshot
     assert not same_model("anthropic/claude-opus-5-5", "openai/claude-opus-5-5x")
+
+
+def test_the_runner_states_what_the_agent_cant(svc):
+    facts = {"consequence": "reversible", "specification": "explicit", "scope": "single"}
+    assert call(svc, "/route", {"task": "q", "episode": "e1", "facts": facts}, token="tok-b")[0] == 400
+    _, d = call(svc, "/route", {"task": "q", "episode": "e1", "facts": facts}, token="run-b")
+    assert d["computed_tier"] == "standard"                     # chat: no check (F4)
+    _, d = call(svc, "/route", {"task": "q", "episode": "e2",
+                                "facts": {**facts, "consequence": "costly"}}, token="run-b")
+    assert d["computed_tier"] == "strong"                       # a push: F5
+    # either token ends the agent's episodes; a gateway's agent target isn't drift
+    assert call(svc, "/episodes/end", {"episode": "e1", "models": ["openclaw/iter-b"]},
+                token="tok-b")[1] == {"ok": True, "drift": []}
+
+
+def test_runner_facts_need_a_runner_token(tmp_path):
+    f = tmp_path / "agents.yaml"
+    f.write_text(json.dumps({"format": "hive-route.agents/1", "agents": {"a": {
+        "token_sha256": sha("t"), "kinds": ["work"], "runner_facts": ["consequence"]}}}))
+    with pytest.raises(RouteError, match="go together"):
+        load_agents(f)

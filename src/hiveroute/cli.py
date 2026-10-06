@@ -322,7 +322,11 @@ def _run(args: argparse.Namespace) -> int:
             state, _ = collect(t, load_sources(args.sources), datetime.now(UTC))
         else:
             state = {"as_of": format_time(datetime.now(UTC))}
-        mode = args.mode or (routelog.current_mode(args.log) if args.log else None) or "live"
+        mode = args.mode or (routelog.current_mode(args.log) if args.log else None)
+        if mode is None:
+            mode = "live"
+            print("hive-route: no --mode and none logged: rendering live mode (with nothing "
+                  "qualified, no route); --mode fixed shows the baseline", file=sys.stderr)
         out, changed = openclaw.bind(t, b, state, mode, args.log)
         print(json.dumps({**out, "changed": changed}, indent=2))
         if args.log and not changed:
