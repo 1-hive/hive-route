@@ -23,13 +23,15 @@
 # Version 14: sc-deepseek-v4 back, for reviews only (kinds: [review]), last in standard: a non-Claude reviewer
 #   when Codex is out. It runs with no model judging its actions (harness claude-code-allowlist: dontAsk and
 #   a fixed allow list, deploy/review-allowlist.json), so its own model never approves its own actions.
+# Version 15: Kev-4B (a self-hosted Jev-like decision model, kev.service) as a shadow scorer next to Qwen.
 format: hive-route.table/1
-version: 14
+version: 15
 prefer: order        # SingularityCompute (self-hosted) first in each tier; the paid plans back it up
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
   chatgpt-plan: {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
   local-gpu:    {kind: local, limits: [{concurrent: 1}]}
+  kev-gpu:      {kind: local, limits: [{concurrent: 4}]}
   # Anthropic API, pay per call through the gateway; last in its tiers, a test budget for now.
   anthropic-api: {kind: metered, limits: [{usd: 10, per: month}, {usd: 5, per: attempt}], gateway_key_env: ANTHROPIC_API_KEY}
   # SingularityCompute (self-hosted). Chat completions only, so every harness reaches it through
@@ -48,6 +50,7 @@ routes:
   api-opus:     {tier: strong,   pool: anthropic-api, family: claude, harness: claude-code, model: claude-opus-5-5, gateway_model: anthropic/claude-opus-5-5, effort: high, via_gateway: true, price: {in: 4, out: 20}, tools: true}
   api-sonnet:   {tier: standard, pool: anthropic-api, family: claude, harness: claude-code, model: claude-sonnet-5-5, gateway_model: anthropic/claude-sonnet-5-5, via_gateway: true, price: {in: 2, out: 10}, tools: true}
   qwen-local:   {tier: local,    pool: local-gpu,    family: qwen,   harness: ollama, endpoint: "http://127.0.0.1:11434", model: "qwen3:8b", tools: false}
+  kev-4b:       {tier: local,    pool: kev-gpu,      family: qwen,   harness: systemone, endpoint: "http://127.0.0.1:8009", model: kev-latest, tools: false}
 tiers:
   strong:   [opus-plan, gpt-astra-high]
   standard: [opus-std, sonnet-plan, gpt-sol-plan, sc-deepseek-v4]
@@ -55,6 +58,9 @@ tiers:
   local:    [qwen-local]
 # The scorer (§4.3) estimates unknown task facts on the local model; shadow: logged, not used.
 scorer: {route: qwen-local, mode: shadow, max_output_tokens: 800, timeout_s: 90}
+# Shadow scorers: always logged, never used; compared with the scorer on real tasks.
+shadow_scorers:
+  - {route: kev-4b, timeout_s: 10}
 # fixed mode: the launcher's models before routing, the baseline (§6).
 fixed:
   work: opus-plan

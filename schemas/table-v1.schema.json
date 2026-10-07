@@ -143,6 +143,17 @@
         "timeout_s": {
           "type": "number",
           "exclusiveMinimum": 0
+        },
+        "max_chars": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The task text's first characters the scorer reads (default 12000)."
+        },
+        "min_probability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "systemone harness: an answer less likely than this is dropped and the fact stays unknown."
         }
       }
     },
@@ -192,6 +203,41 @@
           "$ref": "#/$defs/route_list"
         }
       }
+    },
+    "shadow_scorers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "route"
+        ],
+        "properties": {
+          "route": {
+            "$ref": "#/$defs/id"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "timeout_s": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "max_chars": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The task text's first characters the scorer reads (default 12000)."
+          },
+          "min_probability": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "systemone harness: an answer less likely than this is dropped and the fact stays unknown."
+          }
+        }
+      },
+      "description": "More scorers, always in shadow mode: each logs its own route.scored for comparison (\u00a74.3)."
     }
   },
   "$defs": {
@@ -245,7 +291,7 @@
         "gateway_key_env": {
           "type": "string",
           "pattern": "^[A-Z_][A-Z0-9_]*$",
-          "description": "The environment variable holding the pool's API key, for the gateway (§8)"
+          "description": "The environment variable holding the pool's API key, for the gateway (\u00a78)"
         },
         "gateway_drop_params": {
           "type": "array",
@@ -254,7 +300,7 @@
             "minLength": 1
           },
           "uniqueItems": true,
-          "description": "Request fields the gateway drops, by name, for this pool's backend (e.g. harness-specific fields a chat-completions backend rejects); nothing else is dropped (§8)."
+          "description": "Request fields the gateway drops, by name, for this pool's backend (e.g. harness-specific fields a chat-completions backend rejects); nothing else is dropped (\u00a78)."
         }
       }
     },
@@ -413,11 +459,11 @@
         "gateway_model": {
           "type": "string",
           "minLength": 1,
-          "description": "The provider-prefixed model the gateway calls, e.g. anthropic/claude-opus-5-5 (§8)"
+          "description": "The provider-prefixed model the gateway calls, e.g. anthropic/claude-opus-5-5 (\u00a78)"
         },
         "via_gateway": {
           "type": "boolean",
-          "description": "The harness reaches this route through the hive's gateway, asking for the route_id as its model (§8); the gateway calls gateway_model at endpoint."
+          "description": "The harness reaches this route through the hive's gateway, asking for the route_id as its model (\u00a78); the gateway calls gateway_model at endpoint."
         }
       }
     }

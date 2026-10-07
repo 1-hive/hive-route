@@ -150,9 +150,11 @@ def _check(data: dict) -> None:
     for kind, rid in data["fixed"].items():
         if rid not in routes:
             raise RouteError("TABLE_INVALID", f"fixed/{kind}: unknown route {rid!r}")
-    scorer = data.get("scorer")
-    if scorer and scorer["route"] not in routes:
-        raise RouteError("TABLE_INVALID", f"scorer: unknown route {scorer['route']!r}")
+    scorers = ([("scorer", data["scorer"])] if data.get("scorer") else []) + [
+        (f"shadow_scorers/{i}", s) for i, s in enumerate(data.get("shadow_scorers", []))]
+    for where, scorer in scorers:
+        if scorer["route"] not in routes:
+            raise RouteError("TABLE_INVALID", f"{where}: unknown route {scorer['route']!r}")
     if "strong" in data["allow_upgrade_on_wait"]:
         raise RouteError("TABLE_INVALID", "allow_upgrade_on_wait: strong has no tier above it")
 

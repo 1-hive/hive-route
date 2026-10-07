@@ -39,7 +39,7 @@ from .canonical import UTC, format_time
 from .decide import decide
 from .errors import RouteError
 from .observe import demote, same_model
-from .scorer import apply, score
+from .scorer import apply, score, scorers
 from .table import Table, schema_error
 from .usage import collect
 
@@ -77,15 +77,21 @@ def run_decision(table: Table, request: dict, state: dict, mode: str, log: str |
     """Score unknown facts from the task's text (if any), decide, and log: what the CLI's
     ``decide`` and the service share."""
     if text:
-        scored = score(table, request, text)
-        if scored:
+        # The table's scorer, then its shadow scorers, each on the request as it came in.
+        original, live = request, None
+        for scorer in scorers(table):
+            scored = score(table, original, text, scorer=scorer)
+            if not scored:
+                continue
             # What the estimates would do to the tier, logged in either scorer mode.
-            with_est = decide(apply(request, {**scored, "mode": "live"}), table, state, "live")
+            with_est = decide(apply(original, {**scored, "mode": "live"}), table, state, "live")
             scored["tier_with_estimates"] = with_est["computed_tier"]
-            scored["tier_without"] = decide(request, table, state, "live")["computed_tier"]
-            request = apply(request, scored)
+            scored["tier_without"] = decide(original, table, state, "live")["computed_tier"]
+            if live is None and scored["mode"] == "live":
+                live = scored
             if log:
                 routelog.record_scored(log, table, scored)
+        request = apply(original, live)
     decision = decide(request, table, state, mode)
     if log:
         routelog.record_decision(log, table, request, state, mode, decision)

@@ -12,8 +12,16 @@ In ``shadow`` mode (the table's ``scorer.mode``) the estimates are logged as
 ``estimated_facts``, so the decision (and its replay) uses them with source
 ``estimated``.
 
+The table's ``shadow_scorers`` run the same way on other routes, always in shadow mode,
+each logged as its own ``route.scored``: a second scorer is compared on real tasks before
+it could replace the first. ``evaluate`` (``hive-route scorer-eval``) runs scorers on a
+labelled suite.
+
 The scorer's route is called directly, never routed. Supported harnesses: ``ollama``
-(the native chat API with a JSON schema).
+(the native chat API with a JSON schema) and ``systemone`` (a decision model with
+TypeSafe's System One API, such as Jev or a self-hosted Kev: one ``choice`` question per
+fact, two for ``verification``, answered with probabilities; ``min_probability`` drops a
+less likely answer, so the fact stays unknown).
 """
 
 from __future__ import annotations
@@ -53,6 +61,63 @@ Definitions:
 {DEFINITIONS}
 When the text doesn't settle a fact, choose the costlier value. Reply with JSON only."""
 
+# The same definitions as System One questions: one choice per fact, cheapest option first.
+# Each wording is the best of those tried on Kev-4B against fixtures/scorer/suite.jsonl
+# (59 cases): short labels, as in Jev's and Kev's examples, for specification (48 against
+# 39 with whole clauses) and scope (38 against 35); whole clauses for consequence (52
+# against 51, and 68 against 66 on cases.jsonl). A `score` question, averaging both option
+# orders, or a two-step scope question did no better. Held-out sets gain less (about +1).
+QUESTIONS = {
+    "specification": ("How fully does the task pin what to do and how it's checked?",
+                      {"explicit": "Plan and acceptance check given",
+                       "partial": "What to do given, approach or acceptance partly open",
+                       "goal_only": "Only a goal; plan must be found"}),
+    "scope": ("How much does the task touch?",
+              {"single": "One file or component",
+               "few": "Two to four files or components",
+               "many": "Five or more, or several subsystems"}),
+    "consequence": ("What does a mistake cost?",
+                    {"reversible": "the work is easy to undo",
+                     "costly": "it spends external compute, changes shared or production state, "
+                               "or is hard to undo"}),
+}
+# Verification as two questions, which a decision model answers far better than one three-way
+# choice (Kev-4B on fixtures/scorer/suite.jsonl: 42/59 against 17/59; "none" was almost
+# never chosen): is there any check at all, and if so, who controls it.
+CHECKED = ("Does the task text name any way the result will be checked: tests to pass or "
+           "write, a benchmark or reference result, acceptance criteria, or a review?")
+CONTROLLED = ("What mainly decides whether the task succeeded?",
+              {"independent": "a check the worker can't change: existing or protected tests, a "
+                              "reference result or benchmark, or a reviewer with a stated bar",
+               "weak": "tests or checks the worker writes, or a matter of judgment"})
+MAX_CHARS = 12000
+
+
+def systemone_questions(facts: list[str]) -> dict:
+    qs = {}
+    for f in facts:
+        if f == "verification":
+            qs["verification.checked"] = {"type": "noul", "instructions": CHECKED}
+            qs["verification.controlled"] = {"type": "choice", "instructions": CONTROLLED[0],
+                                             "criteria": CONTROLLED[1]}
+        else:
+            qs[f] = {"type": "choice", "instructions": QUESTIONS[f][0], "criteria": QUESTIONS[f][1]}
+    return qs
+
+
+def _verification(answers: dict) -> dict | None:
+    """``none`` when no check is named (p < 0.5); otherwise who controls it. The
+    probabilities combine both answers."""
+    checked, ctl = answers.get("verification.checked"), answers.get("verification.controlled")
+    if not (isinstance(checked, dict) and isinstance(ctl, dict)):
+        return None
+    n, probs = checked.get("noul"), ctl.get("probabilities") or {}
+    if not isinstance(n, (int, float)) or ctl.get("choice") not in ("independent", "weak"):
+        return None
+    combined = {"independent": n * float(probs.get("independent", 0)),
+                "weak": n * float(probs.get("weak", 0)), "none": 1 - n}
+    return {"choice": "none" if n < 0.5 else ctl["choice"], "probabilities": combined}
+
 Caller = Callable[[dict, dict, dict], str]
 
 
@@ -87,8 +152,19 @@ def call_ollama(route: dict, scorer: dict, body: dict) -> str:
         return json.loads(r.read())["message"]["content"]
 
 
-CALLERS: dict[str, Caller] = {"ollama": lambda route, scorer, body: call_ollama(route, scorer,
-                                                                              body)}
+def call_systemone(route: dict, scorer: dict, body: dict) -> str:
+    """POST to a System One API (Jev, Kev); returns the response body."""
+    url = route["endpoint"].rstrip("/") + "/v1/systemone"
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=scorer.get("timeout_s", 60)) as r:
+        return r.read().decode()
+
+
+CALLERS: dict[str, Caller] = {
+    "ollama": lambda route, scorer, body: call_ollama(route, scorer, body),
+    "systemone": lambda route, scorer, body: call_systemone(route, scorer, body),
+}
 
 
 def parse(content: str, facts: list[str]) -> tuple[dict, str | None]:
@@ -108,41 +184,86 @@ def parse(content: str, facts: list[str]) -> tuple[dict, str | None]:
     return out, tier if tier in ("local", "light", "standard", "strong") else None
 
 
-def score(table: Table, request: dict, text: str, caller: Caller | None = None) -> dict | None:
-    """Estimate the unknown facts that could lower the tier. None when the scorer isn't
-    configured or isn't needed; otherwise the ``route.scored`` data."""
-    scorer = table.data.get("scorer")
-    if not scorer:
-        return None
-    facts = could_lower(request, table)
-    if not facts:
-        return None
+def parse_systemone(content: str, facts: list[str], scorer: dict) -> dict:
+    """Each fact's chosen value with its probability; below ``min_probability`` it's dropped."""
+    try:
+        answers = json.loads(content).get("answers") or {}
+    except (json.JSONDecodeError, AttributeError):
+        return {}
+    out = {}
+    floor = scorer.get("min_probability", 0)
+    for f in facts:
+        a = _verification(answers) if f == "verification" else answers.get(f)
+        if not isinstance(a, dict) or a.get("choice") not in VALUES[f]:
+            continue
+        probs = {k: round(float(v), 4) for k, v in (a.get("probabilities") or {}).items()
+                 if k in VALUES[f] and isinstance(v, (int, float))}
+        p = probs.get(a["choice"])
+        if p is None or p < floor:
+            continue
+        out[f] = {"value": a["choice"], "reason": f"p={p:.2f}", "p": p, "probabilities": probs}
+    return out
+
+
+def scorers(table: Table) -> list[dict]:
+    """The table's scorer (in its own mode), then its shadow scorers (always shadow)."""
+    out = [table.data["scorer"]] if table.data.get("scorer") else []
+    return out + [{**s, "mode": "shadow"} for s in table.data.get("shadow_scorers", [])]
+
+
+def estimate(table: Table, scorer: dict, kind: str, facts: list[str], text: str,
+             history: list[dict] | None = None, caller: Caller | None = None) -> dict:
+    """Ask one scorer for ``facts`` from the task's text: estimates, suggested tier, error."""
     route = table.routes[scorer["route"]]
-    call = caller or CALLERS.get(route.get("harness", ""))
+    harness = route.get("harness", "")
+    call = caller or CALLERS.get(harness)
     if call is None:
-        raise RouteError("TABLE_INVALID", f"scorer: can't call harness {route.get('harness')!r}")
-    history = [f"attempt {a['attempt']} on {a['tier']}: {a['class']}"
-               for a in request.get("history", [])]
-    user = (f"Task kind: {request['facts']['kind']}\n"
-            + (f"Earlier attempts: {'; '.join(history)}\n" if history else "")
-            + f"Estimate these facts: {', '.join(facts)}.\n\nTask text:\n{text[:12000]}")
-    body = {"model": route["model"], "stream": False, "think": False,
-            "format": schema_for(facts),
-            "options": {"temperature": 0, "num_predict": scorer.get("max_output_tokens", 800)},
-            "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]}
+        raise RouteError("TABLE_INVALID", f"scorer: can't call harness {harness!r}")
+    past = [f"attempt {a['attempt']} on {a['tier']}: {a['class']}" for a in history or []]
+    head = (f"Task kind: {kind}\n"
+            + (f"Earlier attempts: {'; '.join(past)}\n" if past else ""))
+    text = text[:scorer.get("max_chars", MAX_CHARS)]
+    if harness == "systemone":
+        body = {"model": route["model"], "state": f"{head}\nTask text:\n{text}",
+                "questions": systemone_questions(facts)}
+    else:
+        user = head + f"Estimate these facts: {', '.join(facts)}.\n\nTask text:\n{text}"
+        body = {"model": route["model"], "stream": False, "think": False,
+                "format": schema_for(facts),
+                "options": {"temperature": 0, "num_predict": scorer.get("max_output_tokens", 800)},
+                "messages": [{"role": "system", "content": SYSTEM},
+                             {"role": "user", "content": user}]}
     t0 = time.monotonic()
     error = None
     try:
         content = call(route, scorer, body)
     except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as e:
         content, error = "", f"{type(e).__name__}: {e}"
-    estimates, suggested = parse(content, facts)
+    if harness == "systemone":
+        estimates, suggested = parse_systemone(content, facts, scorer), None
+    else:
+        estimates, suggested = parse(content, facts)
     if not estimates and error is None:
         error = "no valid estimates in the output"
-    return {"task": request["task"], "attempt": request["attempt"], "route_id": scorer["route"],
-            "model": route["model"], "mode": scorer["mode"], "asked": facts,
-            "estimates": estimates, "suggested_tier": suggested, "error": error,
+    return {"route_id": scorer["route"], "model": route["model"], "mode": scorer["mode"],
+            "asked": facts, "estimates": estimates, "suggested_tier": suggested, "error": error,
             "seconds": round(time.monotonic() - t0, 2)}
+
+
+def score(table: Table, request: dict, text: str, caller: Caller | None = None,
+          scorer: dict | None = None) -> dict | None:
+    """Estimate the unknown facts that could lower the tier, with ``scorer`` (default: the
+    table's). None when it isn't configured or isn't needed; otherwise the ``route.scored``
+    data."""
+    scorer = scorer or table.data.get("scorer")
+    if not scorer:
+        return None
+    facts = could_lower(request, table)
+    if not facts:
+        return None
+    est = estimate(table, scorer, request["facts"]["kind"], facts, text,
+                   request.get("history", []), caller)
+    return {"task": request["task"], "attempt": request["attempt"], **est}
 
 
 def apply(request: dict, scored: dict | None) -> dict:
@@ -154,4 +275,4 @@ def apply(request: dict, scored: dict | None) -> dict:
     return {**request, "estimated_facts": est}
 
 
-__all__ = ["FACTS", "VALUES", "apply", "could_lower", "parse", "score"]
+__all__ = ["FACTS", "VALUES", "apply", "could_lower", "estimate", "parse", "score", "scorers"]

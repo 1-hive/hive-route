@@ -1,7 +1,9 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-10-06 · rev 10 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
+**Status:** built · 2026-10-07 · rev 11 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
+
+**Changes in rev 11:** shadow scorers, a `systemone` scorer harness for decision models (Jev, a self-hosted Kev), and `scorer-eval` on a labelled suite (§4.3).
 
 **Changes in rev 10:** the `openclaw-sessions` reader filters rows by `created_at` in SQL (§9.3), so building the state reads only recent turns.
 
@@ -149,6 +151,16 @@ Facts are often missing, especially `scope` and `specification` for tasks writte
 - **It is called only when needed:** when a fact that could change the tier is unknown. Tasks with complete facts never call it.
 
 **As built.** `decide --task-text FILE` runs the table's `scorer` when the tier with the unknown facts at their conservative values differs from the tier with them at their cheapest. The scorer route is called directly (harness `ollama`: the chat API with a JSON schema, temperature 0); only the unknown facts are asked for, and only well-formed answers are kept. `route.scored` logs the estimates with the tier with and without them, in both modes. In `live` scorer mode the estimates enter the request as `estimated_facts` (source `estimated`), so the decision replays exactly.
+
+**Shadow scorers and decision models (rev 11).** `shadow_scorers:` in the table lists more scorers, always in shadow mode. Each one is asked under the same condition as the scorer, on the request as it came in, and logs its own `route.scored`. `report` counts outcomes per scorer route. A second scorer is compared on real tasks before it could replace the first. Harness `systemone` calls a decision model with TypeSafe's System One API (`POST /v1/systemone`): hosted Jev, or a self-hosted Kev. It asks one `choice` question per fact, with the same definitions. `verification` is asked as two questions: is any check named (`noul`; below 0.5 it's `none`), and if so, who controls it (`independent` or `weak`). As one three-way choice, Kev-4B almost never answered `none`. Options are listed cheapest first, worded as tested best (short labels for specification and scope). Reversing their order changes about one answer in six, so the order is fixed. It logs each answer's probability (`p`, `probabilities`). `min_probability` drops an answer below it, so the fact stays unknown and keeps its costly default. `max_chars` (default 12,000) caps the text any scorer reads. `systemone` routes aren't chat models, so the gateway config leaves them out.
+
+**Scorer evaluation.** `hive-route scorer-eval TABLE SUITE [--scorer ROUTE]… [--workspace REPO --commit SHA] [--out ROWS]` asks each scorer for all four facts on every case of a labelled suite (`fixtures/scorer`). It reads order cases with `git show` at the pinned commit and strips `Route facts:` and `Review tier:` lines. It reports, per scorer:
+- accuracy per fact, overall and per source;
+- estimates cheaper than the label, the error that lowers a tier;
+- the tier the estimates give against the tier the labels give;
+- coverage and accuracy above probability thresholds.
+
+It only judges scorers: nothing is logged or replayed.
 
 ### 4.4 Choosing the route
 

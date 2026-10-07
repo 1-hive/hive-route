@@ -2,6 +2,14 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 11 — 2026-10-07
+
+- **Shadow scorers:** `shadow_scorers:` in the table runs more scorers next to `scorer`, always in shadow mode, each with its own `route.scored`; `report`'s scorer counts are per scorer route.
+- **`systemone` harness** for decision models with TypeSafe's System One API (Jev, a self-hosted Kev): one `choice` per fact (verification as two questions: any check named, then who controls it), probabilities logged, optional `min_probability`. Short option labels for specification and scope, and no "choose the costlier option" sentence: Kev scores each option separately, so it can't use that. On `fixtures/scorer/suite.jsonl`, Kev-4B matches 76% of labels, with 5 of 59 tiers below the labels' tier. The first wording matched 61% (verification as one choice scored 17/59), with 17 tiers lower. Scorers take `max_chars` (default 12,000, as before). The gateway config skips `systemone` routes.
+- **`hive-route scorer-eval`** runs scorers on a labelled suite: accuracy per fact and source, estimates cheaper than the label, tier agreement, and accuracy by probability. Suites in `fixtures/scorer`.
+
+**Adopters:** nothing required. `report --json`'s `scorer` keys now start with the scorer's route.
+
 ## rev 10 — 2026-10-06
 
 - The `openclaw-sessions` reader filters rows on `created_at` in SQL (with an hour's margin; its unit, seconds or milliseconds, read from the newest row) instead of reading and decompressing every event. The first pilot measured about 8 s and 330 MB per state build without it, too slow for the route service, where an agent's hook waits on it. Reported by the pilot.

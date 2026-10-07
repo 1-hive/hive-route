@@ -22,7 +22,8 @@ with calls in flight able to overshoot.
 
 Without a database (``database=False``) the gateway has only its master key: no
 per-actor keys and no spend logs. Subscription routes are left out unless asked for: passthrough of a subscription login
-is used only where the provider's terms allow it.
+is used only where the provider's terms allow it. ``systemone`` routes (decision models
+for the scorer) are left out too: they are called directly and aren't chat models.
 """
 
 from __future__ import annotations
@@ -45,6 +46,8 @@ def litellm_config(table: Table, include_subscription: bool = False,
     for rid, route in table.routes.items():
         pool = table.pools[route["pool"]]
         if pool["kind"] == "subscription" and not include_subscription:
+            continue
+        if route.get("harness") == "systemone":  # a decision model, not a chat model
             continue
         model = gateway_model(route)
         if model is None:

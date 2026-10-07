@@ -99,7 +99,10 @@ def report(log: str, events: list[dict], usage: dict | None = None) -> dict:
     outcomes = task_outcomes(events)
     groups: dict = defaultdict(lambda: {"attempts": 0, "tasks": set(), "accepted": set(),
                                         "failed_reviews": 0, "output_tokens": 0})
-    scored = {e["data"]["attempt"]: e["data"] for e in read(log) if e["type"] == "route.scored"}
+    scored: dict = defaultdict(list)  # attempt -> one entry per scorer
+    for e in read(log):
+        if e["type"] == "route.scored":
+            scored[e["data"]["attempt"]].append(e["data"])
     agreement: Counter = Counter()
     for ev in read(log):
         if ev["type"] != "route.decided":
@@ -117,10 +120,9 @@ def report(log: str, events: list[dict], usage: dict | None = None) -> dict:
             g["failed_reviews"] = max(g["failed_reviews"], o["failed"])
         if usage and task in usage:
             g["output_tokens"] += usage.pop(task)
-        s = scored.get(d["attempt"])
-        if s and o and o["closed"]:
-            first_pass = o["failed"] == 0
-            agreement[(s.get("tier_with_estimates"), "first-pass" if first_pass else "rework")] += 1
+        for s in scored.get(d["attempt"], []) if o and o["closed"] else []:
+            outcome = "first-pass" if o["failed"] == 0 else "rework"
+            agreement[(s["route_id"], s.get("tier_with_estimates"), outcome)] += 1
     rows = []
     for (prof, tier, route, mode, runtime), g in sorted(groups.items()):
         rows.append({"profile": prof, "tier": tier, "route": route, "mode": mode,
@@ -134,7 +136,7 @@ def report(log: str, events: list[dict], usage: dict | None = None) -> dict:
         for r in rows if r["tier"] in ("strong", "standard") and r["tasks"] >= 3
         and r["accepted"] == r["tasks"] and r["failed_reviews"] == 0]
     return {"groups": rows,
-            "scorer": {f"{t} / {k}": n for (t, k), n in sorted(agreement.items(), key=str)},
+            "scorer": {f"{r}: {t} / {k}": n for (r, t, k), n in sorted(agreement.items(), key=str)},
             "proposals": proposals}
 
 

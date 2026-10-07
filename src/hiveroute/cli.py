@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import __version__
+from . import __version__, scoreeval
 from . import log as routelog
 from .canary import accept, qualify, set_lesson
 from .canonical import UTC, format_time, parse_time
@@ -189,6 +189,15 @@ def _parser() -> argparse.ArgumentParser:
     rp.add_argument("--agentsview", metavar="ROOT",
                     help="add output tokens per task from AgentsView, for task folders under ROOT")
     rp.add_argument("--json", action="store_true")
+
+    se = sub.add_parser("scorer-eval", help="run scorers on a labelled suite of task texts (§4.3)")
+    se.add_argument("table")
+    se.add_argument("suite", help="JSONL cases (fixtures/scorer)")
+    se.add_argument("--scorer", action="append", metavar="ROUTE",
+                    help="a route to score with (repeatable; default: the table's scorers)")
+    se.add_argument("--workspace", help="the git repository that order cases' paths are in")
+    se.add_argument("--commit", help="the workspace commit, for cases that don't name one")
+    se.add_argument("--out", help="write one result per case and scorer here (JSONL)")
 
     r = sub.add_parser("replay", help="recompute every decision in a log")
     r.add_argument("log")
@@ -408,6 +417,15 @@ def _run(args: argparse.Namespace) -> int:
         b = attempt_budget(load_table(args.table), _read_json(args.decision))
         if b:
             print(json.dumps(b))
+        return 0
+
+    if args.cmd == "scorer-eval":
+        t = load_table(args.table)
+        rows = scoreeval.run(t, scoreeval.load_suite(args.suite), args.scorer, args.workspace,
+                             args.commit)
+        if args.out:
+            Path(args.out).write_text("".join(json.dumps(r) + "\n" for r in rows))
+        print(json.dumps(scoreeval.summarize(t, rows), indent=2))
         return 0
 
     if args.cmd == "whatif":
