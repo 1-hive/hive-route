@@ -2,6 +2,12 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 13 — 2026-10-08 (design, not built)
+
+- ROUTING.md §4.8 proposes a second reader of the facts. A decision model (Kev) reads all four facts on every attempt with text. It may raise a stated fact when confident (`raise_at`) and never lower one. It fills deliberately unknown facts only within a `tail` threshold. It is qualified on a labelled suite like a route, rolls out shadow → raise → live, and a hosted reader needs `egress: allowed`. For review with the Omega/Iter routing specification's authors.
+
+**Adopters:** nothing; no code changed.
+
 ## rev 12 — 2026-10-07
 
 - A `systemone` scorer route may name `api_key_env`: the environment variable holding a bearer key. This allows a hosted decision model, such as TypeSafe's Jev (`https://api.typesafe.ai`, `jev-latest`) or Kev deployed behind a key. If the variable is unset, the scorer logs an error and the facts stay unknown.

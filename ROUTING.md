@@ -3,6 +3,8 @@
 **Status:** built · 2026-10-07 · rev 12 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
 
+**Changes in rev 13 (proposed, not built):** a second reader of the facts (§4.8). A decision model reads every attempt's facts. It may raise a stated fact when confident, never lower one, and it fills deliberately unknown facts only under a confidence threshold. It is qualified like a route, and a hosted reader needs explicit egress approval.
+
 **Changes in rev 12:** a `systemone` scorer can be hosted (Jev, or Kev behind a key): the route's `api_key_env` names the variable that holds its bearer key (§4.3).
 
 **Changes in rev 11:** shadow scorers, a `systemone` scorer harness for decision models (Jev, a self-hosted Kev), and `scorer-eval` on a labelled suite (§4.3).
@@ -152,6 +154,8 @@ Facts are often missing, especially `scope` and `specification` for tasks writte
 - **Shadow first.** It starts in shadow mode: its estimates are logged (`route.scored`) but not used. It goes live when replay (R9) shows that its estimates predict outcomes better than the conservative defaults.
 - **It is called only when needed:** when a fact that could change the tier is unknown. Tasks with complete facts never call it.
 
+§4.8 proposes generalizing the scorer into a reader of every attempt's facts that may raise them (rev 13, not built).
+
 **As built.** `decide --task-text FILE` runs the table's `scorer` when the tier with the unknown facts at their conservative values differs from the tier with them at their cheapest. The scorer route is called directly (harness `ollama`: the chat API with a JSON schema, temperature 0); only the unknown facts are asked for, and only well-formed answers are kept. `route.scored` logs the estimates with the tier with and without them, in both modes. In `live` scorer mode the estimates enter the request as `estimated_facts` (source `estimated`), so the decision replays exactly.
 
 **Shadow scorers and decision models (rev 11).** `shadow_scorers:` in the table lists more scorers, always in shadow mode. Each one is asked under the same condition as the scorer, on the request as it came in, and logs its own `route.scored`. `report` counts outcomes per scorer route. A second scorer is compared on real tasks before it could replace the first. Harness `systemone` calls a decision model with TypeSafe's System One API (`POST /v1/systemone`): hosted Jev, or a self-hosted Kev. It asks one `choice` question per fact, with the same definitions. `verification` is asked as two questions: is any check named (`noul`; below 0.5 it's `none`), and if so, who controls it (`independent` or `weak`). As one three-way choice, Kev-4B almost never answered `none`. Options are listed cheapest first, worded as tested best (short labels for specification and scope). Reversing their order changes about one answer in six, so the order is fixed. It logs each answer's probability (`p`, `probabilities`). `min_probability` drops an answer below it, so the fact stays unknown and keeps its costly default. `max_chars` (default 12,000) caps the text any scorer reads. A hosted endpoint takes a bearer key: the route's `api_key_env` names the environment variable that holds it, and the key never goes in the table. Hosted Jev is `endpoint: "https://api.typesafe.ai"`, `model: jev-latest`; Kev deployed on Modal is its `https://<workspace>--kev-api.modal.run` URL with its `KEV_API_KEY`. A hosted scorer's calls are billed by its provider, and the router's pool limits don't count them. `systemone` routes aren't chat models, so the gateway config leaves them out.
@@ -199,6 +203,78 @@ Implemented in `src/hiveroute/decide.py`; the schemas are `schemas/request-v1.sc
 - **Mode:** `live` or `fixed` (§6).
 - **Decision:** `decision` ∈ {`route`, `wait`, `no_route`, `reconcile`}; `tier` (what the attempt runs at) and `computed_tier` (what the rules require; they differ under an override, in `fixed` mode or after an RT3 upgrade); `route_id`, `route_pin`, `pool`, `model`, and the route's `harness`, `endpoint` and `effort` (what a launcher needs); every fact with its source; `reasons[]` (each rule that applied, with a note, and for tier rules the tier it required); `suggestions[]` (split the task, consult); `rejected` (each route ruled out, and why); `wait_until`; and the table pin.
 - **Order of evaluation:** tier rules F1–F8 and the hint; RT1 override; an unreconciled `indeterminate` previous attempt returns `reconcile` (unless the table sets `indeterminate_retry`); `fixed` mode; then RT2–RT7 for the computed tier, and the next tier if RT3 allows it.
+
+### 4.8 A second reader of the facts (proposed, rev 13)
+
+**Status: design for review, not built.** It extends §4.3. Until it's built, the scorer works as §4.3 describes.
+
+**Why.** The rules (§4.2) assume the facts are right. Facts come from whoever writes the task: a chief of staff writing work orders, or an agents file fixed per agent. Nobody checks them. A fact written too cheap is unsafe. A fact written too costly (or left unknown, which counts as costly) is safe but wastes capacity. A decision model such as Kev reads a task in about 0.2 s on a local GPU, with calibrated probabilities. That makes a second, independent reading of the facts cheap enough to take on every attempt. The goal is routing that is both safe and cost-effective: the rules stay the judge, and the facts they judge get checked.
+
+**What changes.**
+
+1. **A reader runs on every attempt that has text.** The table's `reader` (the §4.3 scorer, generalized) is asked for all four facts on every attempt or episode with task text, not only when a fact is unknown. Its answers enter the request as `read_facts`: per fact, the probability of each value. So a decision still replays exactly from its request. If the reader fails, times out or returns bad output, `read_facts` is absent and the decision is the one the rules give without it.
+
+2. **Each fact has a source.** A fact is `stated` (by the task or its writer), `read` (from the reader) or `default`. The decision records the stated value, the reader's probabilities, the value used, and why.
+
+3. **Authority is asymmetric.** For each fact:
+   - **Stated, and the reader agrees or is unsure:** the stated value is used.
+   - **Stated, and the reader is confident it's costlier** (the probability of costlier values is at least `raise_at`, default 0.9): the costlier value is used, with source `raised`, and the disagreement is logged. The reader can raise a stated fact, never lower it.
+   - **Not stated:** the cheapest value whose *tail* (the probability of any costlier value) is at most the fact's `tail` threshold (default 0.1). For example, `consequence` is `reversible` only if P(`costly`) ≤ 0.1. With no usable reading, the costly default applies, as today.
+
+   So the reader alone can only make a decision safer, except for facts the writer deliberately left unknown. There it may choose a cheaper value, but only when it is confident.
+
+4. **Savings come from evidence, not from the reader alone.** Capacity is saved in two ways:
+   - **Unknown facts:** a writer leaves a fact unknown when the reader handles it well (see 5). The reader fills it under the `tail` threshold.
+   - **Writing facts less conservatively:** `report` shows, per writer and per fact, how often the reader confidently disagrees with the stated value, in either direction. A labelled sample of those disagreements shows who's right. Where the reader is right and the stated value too costly, a person loosens the agents file or the work-order habit. Where the stated value is too cheap, the reader already raised it.
+
+5. **The reader is qualified like a route (§3).** Its pin covers the route, the model version and the question wording. It qualifies on a labelled suite (`fixtures/scorer/portable.jsonl`, or a hive's own) against bars in the table, for example at most 10% of cases where the tier from its readings is below the labels' tier, and at least the table's accuracy per fact. A change to any part of the pin voids the qualification. An unqualified reader runs in `shadow` mode only.
+
+6. **Modes, rolled out in order:**
+   - **`shadow`:** readings are logged, never used.
+   - **`raise`:** a reading may raise a fact, stated or unknown, never lower one.
+   - **`live`:** `raise`, plus filling unknown facts under `tail`.
+
+   A hive moves up one step at a time, on the evidence of the step before.
+
+**What doesn't change.** The reader never sets a tier or picks a route. Minimum tiers (F1–F8), the creator's hint, overrides, capacity checks and waiting instead of downgrading all stay. Every decision replays.
+
+**Egress.** A reader that isn't on the router's host sends task text out, to a hosted model or someone else's deployment. A route with `api_key_env` or a non-loopback endpoint must set `egress: allowed` in the table, or the table is rejected. Sending text out is then an explicit, recorded decision of whoever approves the table. This matches the data-egress policy of the Omega/Iter routing specification.
+
+**Input.** The reader gets the task's objective and the evidence it rests on: the work order, or for an episode the objective plus its context. It doesn't get just the last message (Omega/Iter routing specification, F08). Text is capped at the reader's `max_chars`.
+
+**Table** (proposed):
+```yaml
+reader:
+  route: kev-4b
+  mode: shadow            # shadow | raise | live
+  raise_at: 0.9           # reader confidence needed to raise a stated fact
+  tail: {specification: 0.1, verification: 0.1, scope: 0.1, consequence: 0.05}
+  qualify: {suite: fixtures/scorer/portable.jsonl, max_tier_lower: 0.10}
+```
+`scorer:` (§4.3) stays valid and means a reader in `live` mode that reads only unknown facts.
+
+**Relation to the Omega/Iter routing specification.** This keeps its principles:
+- rules first;
+- the classifier as untrusted, schema-checked advice that can't defeat a minimum tier (F09);
+- a fixed local classifier profile, run in shadow first (M6).
+
+It deliberately differs in two ways:
+- **It reads every attempt, not only ambiguous ones (R32).** A local reading costs well under a second, and reading every attempt is what audits the stated facts.
+- **When the reader abstains, the costly default applies,** rather than a middle tier (R33).
+
+**Build steps.**
+1. `read_facts` in the request schema; facts with a source in the decision; replay.
+2. The `reader:` table block with modes and thresholds; `egress` checks.
+3. `raise` and `tail` resolution in `decide()`.
+4. Reader qualification: `scorer-eval` as its canary, bound to its pin.
+5. `report`: disagreement rates per writer and fact, raise rate, and how often the reader changed the tier.
+6. 1-hive: shadow, then `raise`; `live` once evidence supports it.
+
+**Open questions.**
+- **Thresholds:** are 0.9 and 0.1 right? Set them from the reader's calibration on the suite and on real disagreements.
+- **Raise rate:** how much extra capacity do raises cost? Measure it in `shadow` before enabling `raise`.
+- **Reviews:** should the reader's questions differ for `kind: review`?
+- **Learning:** whether to fine-tune the reader on a hive's labelled disagreements. That changes its pin, so it requalifies.
 
 ---
 
