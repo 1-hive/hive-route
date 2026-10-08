@@ -19,10 +19,10 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from .decide import decide
+from .decide import ORDER, costlier_than, decide, tail_value
 from .errors import RouteError
 from .log import read
-from .table import Table
+from .table import TAIL_DEFAULTS, Table, rank
 
 
 def shadow(request: dict, table: Table, state: dict) -> dict:
@@ -135,9 +135,53 @@ def report(log: str, events: list[dict], usage: dict | None = None) -> dict:
         "with no failed reviews; try one tier lower in a shadow table"
         for r in rows if r["tier"] in ("strong", "standard") and r["tasks"] >= 3
         and r["accepted"] == r["tasks"] and r["failed_reviews"] == 0]
-    return {"groups": rows,
-            "scorer": {f"{r}: {t} / {k}": n for (r, t, k), n in sorted(agreement.items(), key=str)},
-            "proposals": proposals}
+    out = {"groups": rows,
+           "scorer": {f"{r}: {t} / {k}": n for (r, t, k), n in sorted(agreement.items(), key=str)},
+           "proposals": proposals}
+    readings = reader_report(log)
+    if readings:
+        out["reader"] = readings
+    return out
+
+
+def reader_report(log: str) -> dict | None:
+    """The reader's readings (§4.8): failures, latency, how often a reading would change the
+    tier, and per writer and fact how often the reader is confident the stated value is too
+    cheap (it would raise it) or too costly (evidence for loosening it). Thresholds are the
+    ones in the table each reading was taken under."""
+    events = list(read(log))
+    tables = {e["data"]["pin"]: e["data"]["table"] for e in events
+              if e["type"] == "route.table_pinned"}
+    reads = [e["data"] for e in events if e["type"] == "route.read"]
+    if not reads:
+        return None
+    tier: Counter = Counter()
+    facts: dict = defaultdict(Counter)
+    for r in reads:
+        if not r["probabilities"]:
+            continue
+        if "tier_with_reading" in r:
+            a, b = rank(r["tier_with_reading"]), rank(r["tier_without"])
+            tier["higher" if a > b else "lower" if a < b else "same"] += 1
+        reader = (tables.get(r["table"]) or {}).get("reader") or {}
+        raise_at = reader.get("raise_at", 0.9)
+        tails = {**TAIL_DEFAULTS, **reader.get("tail", {})}
+        for f, probs in r["probabilities"].items():
+            c = facts[f"{r.get('writer') or 'unknown'} / {f}"]
+            stated = r["stated"].get(f)
+            if stated is None:
+                c["unknown, filled"] += 1
+                continue
+            c["stated"] += 1
+            if costlier_than(f, stated, probs) >= raise_at:
+                c["too cheap (would raise)"] += 1
+            elif ORDER[f].index(tail_value(f, probs, tails[f])) < ORDER[f].index(stated):
+                c["too costly (confidently cheaper)"] += 1
+    ok = [r for r in reads if r["probabilities"]]
+    return {"readings": len(reads), "failed": len(reads) - len(ok),
+            "seconds_mean": round(sum(r["seconds"] for r in reads) / len(reads), 2),
+            "tier_with_reading": dict(tier),
+            "facts": {k: dict(v) for k, v in sorted(facts.items())}}
 
 
 def agentsview_usage(sessions: list[dict], root: str) -> dict:

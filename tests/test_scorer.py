@@ -146,6 +146,8 @@ def test_systemone_invalid_output_is_discarded(content):
 def test_shadow_scorers_are_logged_and_never_used(tmp_path, capsys, monkeypatch):
     data = json.loads(json.dumps(TABLE.data))
     data["scorer"]["mode"] = "live"
+    data["shadow_scorers"] = [{"route": "kev-4b", "timeout_s": 10}]
+    data.pop("reader", None)
     path = tmp_path / "t.json"
     path.write_text(json.dumps(data))
     monkeypatch.setitem(scorer.CALLERS, "ollama", lambda *a: reply(specification="partial"))

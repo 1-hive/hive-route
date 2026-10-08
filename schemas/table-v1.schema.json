@@ -238,6 +238,84 @@
         }
       },
       "description": "More scorers, always in shadow mode: each logs its own route.scored for comparison (\u00a74.3)."
+    },
+    "reader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route",
+        "mode"
+      ],
+      "description": "A second reader of the facts (\u00a74.8): a systemone route read on every attempt with text.",
+      "properties": {
+        "route": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "enum": [
+            "shadow",
+            "live"
+          ]
+        },
+        "raise_at": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "The reading's probability of a costlier value at which a stated fact is raised (default 0.9)."
+        },
+        "tail": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "specification": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "verification": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "scope": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "consequence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "description": "Per fact: an unknown fact takes the cheapest value whose probability of a costlier one is at most this (default 0.3)."
+        },
+        "max_chars": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "qualify": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_tier_lower": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "max_errors": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "description": "Bars for reader-qualify: the share of suite cases where the reading gives a lower tier than the labels, and the share of failed readings (defaults 0.10, 0.02)."
+        }
+      }
     }
   },
   "$defs": {
@@ -469,6 +547,12 @@
           "type": "string",
           "pattern": "^[A-Z_][A-Z0-9_]*$",
           "description": "systemone harness: the environment variable holding the bearer key for a hosted decision model (Jev, or Kev behind a key). The key itself never goes in the table."
+        },
+        "egress": {
+          "enum": [
+            "allowed"
+          ],
+          "description": "This route may receive task text although it leaves the host (an api_key_env, or a non-loopback endpoint). Required for such a route used as a scorer or reader (\u00a74.8)."
         }
       }
     }

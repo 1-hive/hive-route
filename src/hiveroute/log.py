@@ -103,6 +103,14 @@ def record_scored(path: str | Path, table: Table, scored: dict) -> dict:
         return w.append("route.scored", {"table": table.pin, **scored})
 
 
+def record_read(path: str | Path, table: Table, read: dict) -> dict:
+    """The reader's reading for one attempt (§4.8). Not replayed: a model's output. A live,
+    qualified reading also enters the attempt's request, where it is replayed."""
+    with open_log(path) as w:
+        w.ensure_table(table)
+        return w.append("route.read", {"table": table.pin, **read})
+
+
 def set_mode(path: str | Path, mode: str, table: Table) -> dict:
     with open_log(path) as w:
         w.ensure_table(table)

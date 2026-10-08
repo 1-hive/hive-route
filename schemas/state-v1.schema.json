@@ -31,6 +31,15 @@
         }
       }
     },
+    "reader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reader_pin"],
+      "properties": {
+        "status": {"enum": ["candidate", "qualified"]},
+        "reader_pin": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
     "routes": {
       "type": "object",
       "additionalProperties": {

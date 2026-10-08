@@ -25,6 +25,20 @@
         "leverage": {"type": "integer", "minimum": 0}
       }
     },
+    "read_facts": {
+      "description": "The reader's probabilities per value, per fact (§4.8); used only when the reader is live and qualified for reader_pin.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "specification": {"type": "object", "propertyNames": {"enum": ["explicit", "partial", "goal_only"]}, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+        "verification": {"type": "object", "propertyNames": {"enum": ["independent", "weak", "none"]}, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+        "scope": {"type": "object", "propertyNames": {"enum": ["single", "few", "many"]}, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+        "consequence": {"type": "object", "propertyNames": {"enum": ["reversible", "costly"]}, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}}
+      }
+    },
+    "reader_pin": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "writer": {"type": "string", "minLength": 1, "maxLength": 64,
+               "description": "Who wrote the supplied facts (a chief of staff, an agent's name), for the disagreement report; not used to decide."},
     "estimated_facts": {
       "description": "Facts the scorer estimated (§4.3), used where a fact isn't supplied.",
       "type": "object",

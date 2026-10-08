@@ -199,6 +199,15 @@ def _parser() -> argparse.ArgumentParser:
     se.add_argument("--commit", help="the workspace commit, for cases that don't name one")
     se.add_argument("--out", help="write one result per case and scorer here (JSONL)")
 
+    rq = sub.add_parser("reader-qualify", help="qualify the table's reader on a labelled suite "
+                        "(§4.8)")
+    rq.add_argument("table")
+    rq.add_argument("suite", help="JSONL cases, e.g. fixtures/scorer/portable.jsonl")
+    rq.add_argument("--sources", required=True, help="sources file naming the qualifications file")
+    rq.add_argument("--log", required=True)
+    rq.add_argument("--workspace", help="the git repository that order cases' paths are in")
+    rq.add_argument("--commit", help="the workspace commit, for cases that don't name one")
+
     r = sub.add_parser("replay", help="recompute every decision in a log")
     r.add_argument("log")
     return p
@@ -419,6 +428,14 @@ def _run(args: argparse.Namespace) -> int:
             print(json.dumps(b))
         return 0
 
+    if args.cmd == "reader-qualify":
+        e = scoreeval.qualify_reader(load_table(args.table), args.suite,
+                                     load_sources(args.sources), args.log, args.workspace,
+                                     args.commit)
+        print(f"reader {e['route_id']}: {e['status']}; {e['tier_lower']}/{e['cases']} cases with "
+              f"a lower tier than the labels, {e['errors']} failed readings")
+        return 0 if e["status"] == "qualified" else 3
+
     if args.cmd == "scorer-eval":
         t = load_table(args.table)
         rows = scoreeval.run(t, scoreeval.load_suite(args.suite), args.scorer, args.workspace,
@@ -461,6 +478,12 @@ def _run(args: argparse.Namespace) -> int:
                   f"{g['failed_reviews']} failed reviews{tok}")
         for k, n in r["scorer"].items():
             print(f"scorer estimate {k}: {n}")
+        if "reader" in r:
+            rd = r["reader"]
+            print(f"reader: {rd['readings']} readings, {rd['failed']} failed, "
+                  f"{rd['seconds_mean']} s mean; tier with the reading: {rd['tier_with_reading']}")
+            for k, c in rd["facts"].items():
+                print(f"  {k}: " + ", ".join(f"{n} {x}" for x, n in c.items()))
         for p in r["proposals"]:
             print(f"proposal: {p}")
         return 0

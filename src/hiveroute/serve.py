@@ -36,10 +36,10 @@ import yaml
 
 from . import log as routelog
 from .canonical import UTC, format_time
-from .decide import decide
+from .decide import compute_tier, decide, reading_unusable, resolve_facts
 from .errors import RouteError
 from .observe import demote, same_model
-from .scorer import apply, score, scorers
+from .scorer import apply, read, score, scorers
 from .table import Table, schema_error
 from .usage import collect
 
@@ -92,10 +92,32 @@ def run_decision(table: Table, request: dict, state: dict, mode: str, log: str |
             if log:
                 routelog.record_scored(log, table, scored)
         request = apply(original, live)
+        request = run_reader(table, request, state, text, log)
     decision = decide(request, table, state, mode)
     if log:
         routelog.record_decision(log, table, request, state, mode, decision)
     return decision
+
+
+def run_reader(table: Table, request: dict, state: dict, text: str, log: str | None) -> dict:
+    """Read the facts (§4.8) and log the reading with the tier it would give. The request
+    carries the reading only when the reader is live and qualified, so a shadow reading
+    never changes a decision, and every decision replays from its request."""
+    r = read(table, request, text)
+    if r is None:
+        return request
+    if r["probabilities"]:
+        with_reading = {**request, "read_facts": r["probabilities"], "reader_pin": r["reader_pin"]}
+        facts = resolve_facts(with_reading, table, force_reading=True)
+        r["used"] = {k: {"value": f["value"], "source": f["source"]} for k, f in facts.items()
+                     if f["source"] in ("raised", "read")}
+        r["tier_with_reading"] = compute_tier(with_reading, facts, table)[0]
+        r["tier_without"] = compute_tier(request, resolve_facts(request, table), table)[0]
+        if not reading_unusable(with_reading, table, state):
+            request = with_reading
+    if log:
+        routelog.record_read(log, table, r)
+    return request
 
 
 class History:
@@ -221,6 +243,7 @@ class Service:
             for k in ("project", "runtime", "author"):
                 if k in a:
                     request[k] = a[k]
+            request["writer"] = agent  # its agents-file and episode facts, for the reader's report
             if history:
                 request["history"] = history
             now = datetime.now(UTC)

@@ -139,6 +139,13 @@ The record also requires an actor to re-declare when its configuration changes (
 - `decide --shadow-table TABLE2`: a second table decides alongside, logged and never acted on.
 - The scorer (`scorer:` in the table, a local model) estimates facts a task didn't supply. It starts in shadow mode; make it live only once the report shows its estimates match outcomes.
 - To compare scorers, list more under `shadow_scorers:`; they are logged, never used. A decision model with the System One API works as a scorer with harness `systemone`. It can be Kev run locally (`endpoint: "http://127.0.0.1:8009"`), Kev deployed on Modal, or hosted Jev (`endpoint: "https://api.typesafe.ai"`, `model: jev-latest`). For a hosted one, set `api_key_env: JEV_API_KEY` on the route and put the key in that variable. Run `hive-route scorer-eval` on a labelled suite (`fixtures/scorer`) before trusting any scorer.
+- **The reader (ROUTING.md §4.8)** checks the facts your tasks or agents state.
+  1. Add `reader: {route: <systemone route>, mode: shadow}` to the table. For a hosted model, set `egress: allowed` and `api_key_env` on the route.
+  2. Qualify it: `hive-route reader-qualify <table> fixtures/scorer/portable.jsonl --sources <sources> --log <log>`.
+  3. Send each attempt's objective and context as text.
+  4. `report` then shows, per writer and fact, where your stated facts look too cheap or too costly.
+
+  Go `live` only on that evidence. In `live` mode the reader raises confident disagreements and fills unknown facts; it never lowers a stated fact.
 
 ## 9. Long-running OpenClaw agents
 
@@ -183,7 +190,7 @@ For an agent that runs its own loop (Iter), the router can choose per episode in
 **The hook in the agent** (the contract)
 - **At each episode start:** `POST /route` with `Authorization: Bearer <token>` and
   `{"task": "<id>", "episode": "<id>", "facts": {"specification": ..., "scope": ...}}`.
-  Ids match `^[a-z0-9][a-z0-9._-]{0,63}$`; an episode id is used once; `task` groups the episodes of one piece of work, so earlier failures count. Optional: `kind` (one of the agent's), `hint` (`{"tier", "reason"}`, raises only), `context_tokens`, `estimate`, `tools_needed`, and `text` (the request, for the scorer to estimate unknown facts). Leave a fact out when unsure: it takes the costly default.
+  Ids match `^[a-z0-9][a-z0-9._-]{0,63}$`; an episode id is used once; `task` groups the episodes of one piece of work, so earlier failures count. Optional: `kind` (one of the agent's), `hint` (`{"tier", "reason"}`, raises only), `context_tokens`, `estimate`, `tools_needed`, and `text`. `text` is the episode's objective and the context it rests on, not just the last message; the scorer and the reader read it (ROUTING.md §4.3, §4.8). Leave a fact out when unsure: it takes the costly default.
 - **The answer** is a decision (ROUTING.md §4.7). On `"decision": "route"`, run the episode on `model` (with `endpoint`, `effort`) and keep it until the episode ends, through every tool round trip. On `wait`, ask again at `wait_until` (or later if it's null); on `no_route` or `reconcile`, stop and tell the operator. Never pick a model yourself.
 - **If the provider fails mid-episode** (a rate limit, an outage), don't retry the same model: end the episode at once with `capacity` (with `limited_until` if the provider said when) or `outage`, and route a new episode for the same task. The router then picks another pool or waits; retries on the routed model only spend the limit again.
 - **If the service can't be reached,** an always-on agent may fail open: run the episode on its configured chain (what it ran before routing, so no quality is traded) and log locally that the episode wasn't routed. Don't call `/episodes/end` for it: the service never routed it. Count such episodes and alert on them; the service's log only shows routed ones.

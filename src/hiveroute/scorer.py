@@ -33,17 +33,13 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 
-from .decide import FACTS, compute_tier, resolve_facts
+from .canonical import digest
+from .decide import FACTS, ORDER, compute_tier, resolve_facts
 from .errors import RouteError
 from .table import Table
 
 # The facts' values from cheapest to costliest (§4.1).
-VALUES = {
-    "specification": ["explicit", "partial", "goal_only"],
-    "verification": ["independent", "weak", "none"],
-    "scope": ["single", "few", "many"],
-    "consequence": ["reversible", "costly"],
-}
+VALUES = ORDER
 DEFINITIONS = """\
 - specification: "explicit" if the task pins a plan or interface and an acceptance check;
   "partial" if it describes what to do but leaves parts of the approach or the acceptance
@@ -212,6 +208,34 @@ def parse_systemone(content: str, facts: list[str], scorer: dict) -> dict:
     return out
 
 
+def reader_pin(table: Table) -> str | None:
+    """The reader's pin (§4.8): its route's pin, its questions and how much text it reads.
+    Any change to them voids its qualification."""
+    reader = table.data.get("reader")
+    if not reader:
+        return None
+    return digest({"route_id": reader["route"], "route_pin": table.route_pin(reader["route"]),
+                   "questions": systemone_questions(list(VALUES)),
+                   "max_chars": reader.get("max_chars", MAX_CHARS)})
+
+
+def read(table: Table, request: dict, text: str, caller: Caller | None = None) -> dict | None:
+    """The reader's reading of all four facts (§4.8): the ``route.read`` data, or None
+    without a reader. ``probabilities`` holds each fact it read; a failure leaves it empty."""
+    reader = table.data.get("reader")
+    if not reader:
+        return None
+    cfg = {k: v for k, v in reader.items() if k in ("route", "mode", "max_chars", "timeout_s")}
+    est = estimate(table, cfg, request["facts"]["kind"], list(VALUES), text,
+                   request.get("history", []), caller)
+    probs = {f: e["probabilities"] for f, e in est["estimates"].items() if e.get("probabilities")}
+    return {"task": request["task"], "attempt": request["attempt"],
+            "writer": request.get("writer"), "reader_pin": reader_pin(table),
+            "stated": {f: request["facts"][f] for f in VALUES if f in request["facts"]},
+            "route_id": est["route_id"], "model": est["model"], "mode": reader["mode"],
+            "probabilities": probs, "error": est["error"], "seconds": est["seconds"]}
+
+
 def scorers(table: Table) -> list[dict]:
     """The table's scorer (in its own mode), then its shadow scorers (always shadow)."""
     out = [table.data["scorer"]] if table.data.get("scorer") else []
@@ -282,4 +306,5 @@ def apply(request: dict, scored: dict | None) -> dict:
     return {**request, "estimated_facts": est}
 
 
-__all__ = ["FACTS", "VALUES", "apply", "could_lower", "estimate", "parse", "score", "scorers"]
+__all__ = ["FACTS", "VALUES", "apply", "could_lower", "estimate", "parse", "read", "reader_pin",
+           "score", "scorers"]

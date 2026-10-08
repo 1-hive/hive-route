@@ -2,11 +2,21 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
-## rev 13 — 2026-10-08 (design, not built)
+## rev 13 — 2026-10-08
 
-- ROUTING.md §4.8 proposes a second reader of the facts. A decision model (Kev) reads all four facts on every attempt with text. It may raise a stated fact when confident (`raise_at`) and never lower one. It fills deliberately unknown facts only within a `tail` threshold. It is qualified on a labelled suite like a route, runs `shadow` then `live`, and a hosted reader needs `egress: allowed`. For review with the Omega/Iter routing specification's authors.
+- **A second reader of the facts** (ROUTING.md §4.8). The table's `reader` (a `systemone` route, e.g. Kev) reads all four facts on every attempt with text and logs `route.read`.
+  - In `live` mode, when qualified, it raises a stated fact when its probability of a costlier value is at least `raise_at` (default 0.9), and never lowers one.
+  - It fills unknown facts with the cheapest value whose probability of a costlier one is at most `tail` (default 0.3). On the portable set, 0.3 is the largest tail that puts no case below the labels' tier.
+  - Fact sources add `raised` and `read`, and a `reader` reason says whether the reading was used.
+- **`hive-route reader-qualify`** qualifies the reader on a labelled suite against the `qualify` bars, under `reader:<route>` in the qualifications file. The pin covers the route, the questions and `max_chars`. Kev-4B qualifies on `fixtures/scorer/portable.jsonl` with 0 of 102 cases below the labels' tier.
+- **`report`** adds the reader's readings, failures, tier changes, and disagreements per writer and fact.
+- Requests take `writer`, and the route service sets it to the agent's name.
+- **Egress:** a scorer, shadow scorer or reader route that sends text off the host (`api_key_env`, or a non-loopback endpoint) must set `egress: allowed`.
 
-**Adopters:** nothing; no code changed.
+**Adopters:** a table whose scorer route is remote must add `egress: allowed` to that route. To use the reader:
+1. add `reader: {route, mode: shadow}` on a `systemone` route;
+2. run `reader-qualify`;
+3. send the episode's objective and context as `text`.
 
 ## rev 12 — 2026-10-07
 

@@ -390,4 +390,8 @@ def collect(table: Table, sources: dict, now: datetime) -> tuple[dict, dict]:
         state["pools"] = pools
     if routes:
         state["routes"] = routes
+    reader = table.data.get("reader")
+    q = quals.get(f"reader:{reader['route']}") if reader else None
+    if q:
+        state["reader"] = {"status": q["status"], "reader_pin": q["reader_pin"]}
     return state, notes

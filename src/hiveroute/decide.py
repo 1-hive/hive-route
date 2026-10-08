@@ -13,7 +13,7 @@ from datetime import datetime
 
 from .canonical import format_time, parse_time
 from .errors import RouteError
-from .table import TIERS, Table, limit_key, rank, schema_error
+from .table import TAIL_DEFAULTS, TIERS, Table, limit_key, rank, schema_error
 
 FACTS = ("specification", "verification", "scope", "consequence", "leverage")
 # Classes after which a restart keeps its route (RT7), unless something else says otherwise.
@@ -33,17 +33,71 @@ def _reason(rule: str, note: str, tier: str | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 # §4.1-4.2: facts and tier
 # --------------------------------------------------------------------------- #
-def resolve_facts(request: dict, table: Table) -> dict:
+# The facts a reader reads (§4.8), each's values from cheapest to costliest.
+ORDER = {
+    "specification": ["explicit", "partial", "goal_only"],
+    "verification": ["independent", "weak", "none"],
+    "scope": ["single", "few", "many"],
+    "consequence": ["reversible", "costly"],
+}
+
+
+def costlier_than(fact: str, value: str, probs: dict) -> float:
+    """The reading's probability of any value costlier than ``value``."""
+    vals = ORDER[fact]
+    total = sum(probs.get(v, 0.0) for v in vals) or 1.0
+    return sum(probs.get(v, 0.0) for v in vals[vals.index(value) + 1:]) / total
+
+
+def tail_value(fact: str, probs: dict, tail: float) -> str:
+    """The cheapest value whose tail (the probability of a costlier one) is at most ``tail``."""
+    return next(v for v in ORDER[fact] if costlier_than(fact, v, probs) <= tail + 1e-9)
+
+
+def reading_unusable(request: dict, table: Table, state: dict) -> str | None:
+    """Why the request's reading can't be used, or None when it can (§4.8)."""
+    reader = table.data.get("reader")
+    if not reader or reader["mode"] != "live":
+        return "the reader isn't live"
+    q = state.get("reader")
+    if not q or q["status"] != "qualified":
+        return "the reader isn't qualified"
+    if q["reader_pin"] != request.get("reader_pin"):
+        return "the reader is qualified for another version"
+    return None
+
+
+def resolve_facts(request: dict, table: Table, state: dict | None = None,
+                  force_reading: bool = False) -> dict:
+    """Each fact's value and source. With a usable reading (§4.8), a stated fact the reader
+    is confident is costlier is raised, and an unknown fact takes the reading's tail value.
+    ``force_reading`` uses the reading even where it couldn't be (for shadow comparisons)."""
     given = request["facts"]
     facts = {"kind": {"value": given["kind"], "source": "supplied"}}
     estimated = request.get("estimated_facts", {})
+    readings: dict = {}
+    if "read_facts" in request and (
+            force_reading or (state is not None and not reading_unusable(request, table, state))):
+        readings = request["read_facts"]
+    reader = table.data.get("reader") or {}
+    raise_at = reader.get("raise_at", 0.9)
+    tails = {**TAIL_DEFAULTS, **reader.get("tail", {})}
     for name in FACTS:
+        probs = readings.get(name)
         if name in given:
-            facts[name] = {"value": given[name], "source": "supplied"}
+            f = {"value": given[name], "source": "supplied"}
+            if probs and costlier_than(name, given[name], probs) >= raise_at:
+                up = tail_value(name, probs, tails[name])
+                order = ORDER[name]
+                up = max(up, given[name], key=order.index)
+                f = {"value": up, "source": "raised", "stated": given[name]}
+        elif probs:
+            f = {"value": tail_value(name, probs, tails[name]), "source": "read"}
         elif name in estimated:
-            facts[name] = {"value": estimated[name], "source": "estimated"}
+            f = {"value": estimated[name], "source": "estimated"}
         else:
-            facts[name] = {"value": table.fact_default(name), "source": "default"}
+            f = {"value": table.fact_default(name), "source": "default"}
+        facts[name] = f
     return facts
 
 
@@ -309,8 +363,15 @@ def decide(request: dict, table: Table, state: dict, mode: str = "live") -> dict
     outcome is unknown; settle it first).
     """
     now = _validate(request, state, mode)
-    facts = resolve_facts(request, table)
+    facts = resolve_facts(request, table, state)
     tier, reasons, suggestions = compute_tier(request, facts, table)
+    if "read_facts" in request:
+        why = reading_unusable(request, table, state)
+        raised = [f"{k} {f['stated']} -> {f['value']}" for k, f in facts.items()
+                  if f["source"] == "raised"]
+        reasons.append(_reason("reader", f"reading not used: {why}" if why else
+                               "reading used" + (f"; raised {', '.join(raised)}" if raised
+                                                 else "")))
     views = {pid: pool_view(pid, table, state, request, now) for pid in table.pools}
     history = request.get("history", [])
     last = history[-1] if history else None

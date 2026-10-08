@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import cache
 from importlib import resources
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -27,6 +28,13 @@ CONSERVATIVE = {
     "consequence": "costly",
     "author_tier": "strong",
 }
+
+# A reader fills an unknown fact with its cheapest value whose tail, the probability of a
+# costlier value, is at most this (§4.8). 0.3 is the largest tail at which Kev-4B's readings
+# of fixtures/scorer/portable.jsonl put no case below the labels' tier (0.1: 100 of 102 cases
+# strong; 0.3: 55 strong, 40 standard, 7 light; 0.35: one case below the labels' tier).
+TAIL_DEFAULTS = {"specification": 0.3, "verification": 0.3, "scope": 0.3, "consequence": 0.3}
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 DEFAULTS = {
     "soft_threshold": 0.8,
@@ -151,12 +159,33 @@ def _check(data: dict) -> None:
         if rid not in routes:
             raise RouteError("TABLE_INVALID", f"fixed/{kind}: unknown route {rid!r}")
     scorers = ([("scorer", data["scorer"])] if data.get("scorer") else []) + [
-        (f"shadow_scorers/{i}", s) for i, s in enumerate(data.get("shadow_scorers", []))]
+        (f"shadow_scorers/{i}", s) for i, s in enumerate(data.get("shadow_scorers", []))] + (
+        [("reader", data["reader"])] if data.get("reader") else [])
     for where, scorer in scorers:
         if scorer["route"] not in routes:
             raise RouteError("TABLE_INVALID", f"{where}: unknown route {scorer['route']!r}")
+        route = routes[scorer["route"]]
+        if leaves_host(route) and route.get("egress") != "allowed":
+            raise RouteError("TABLE_INVALID", f"{where}: route {scorer['route']!r} sends task "
+                             "text off this host; it needs egress: allowed (§4.8)")
+    reader = data.get("reader")
+    if reader:
+        if routes[reader["route"]].get("harness") != "systemone":
+            raise RouteError("TABLE_INVALID", "reader: needs a systemone route (probabilities)")
+        tails = {**TAIL_DEFAULTS, **reader.get("tail", {})}
+        if any(t >= reader.get("raise_at", 0.9) for t in tails.values()):
+            raise RouteError("TABLE_INVALID", "reader: every tail must be below raise_at")
     if "strong" in data["allow_upgrade_on_wait"]:
         raise RouteError("TABLE_INVALID", "allow_upgrade_on_wait: strong has no tier above it")
+
+
+def leaves_host(route: dict) -> bool:
+    """Whether calling the route sends text off this host: a key, or an endpoint that isn't
+    loopback."""
+    if route.get("api_key_env"):
+        return True
+    ep = route.get("endpoint")
+    return bool(ep) and urlsplit(ep).hostname not in LOOPBACK
 
 
 def load_table(path: str | Path) -> Table:

@@ -24,8 +24,9 @@
 #   when Codex is out. It runs with no model judging its actions (harness claude-code-allowlist: dontAsk and
 #   a fixed allow list, deploy/review-allowlist.json), so its own model never approves its own actions.
 # Version 15: Kev-4B (a self-hosted Jev-like decision model, kev.service) as a shadow scorer next to Qwen.
+# Version 16: Kev-4B becomes the reader (§4.8, shadow) instead of a shadow scorer.
 format: hive-route.table/1
-version: 15
+version: 16
 prefer: order        # SingularityCompute (self-hosted) first in each tier; the paid plans back it up
 pools:
   claude-plan:  {kind: subscription, limits: [{window: 5h}, {window: 7d}]}
@@ -58,9 +59,8 @@ tiers:
   local:    [qwen-local]
 # The scorer (§4.3) estimates unknown task facts on the local model; shadow: logged, not used.
 scorer: {route: qwen-local, mode: shadow, max_output_tokens: 800, timeout_s: 90}
-# Shadow scorers: always logged, never used; compared with the scorer on real tasks.
-shadow_scorers:
-  - {route: kev-4b, timeout_s: 10}
+# The reader (§4.8): Kev-4B reads every attempt's facts; shadow: logged, never used.
+reader: {route: kev-4b, mode: shadow, timeout_s: 10}
 # fixed mode: the launcher's models before routing, the baseline (§6).
 fixed:
   work: opus-plan

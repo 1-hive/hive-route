@@ -12,20 +12,27 @@ estimate is *cheaper* than the label (the error that lowers a tier), the tier th
 estimates give against the tier the labels give, and for a scorer with probabilities, the
 accuracy and coverage above a few thresholds. Nothing here is logged or replayed: it
 judges scorers, it doesn't route.
+
+``qualify_reader`` (``hive-route reader-qualify``) qualifies the table's reader (§4.8).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
 from collections import Counter, defaultdict
+from datetime import datetime
 from pathlib import Path
 
-from .decide import compute_tier, resolve_facts
+from . import quals
+from .canonical import UTC, format_time
+from .decide import compute_tier, resolve_facts, tail_value
 from .errors import RouteError
-from .scorer import VALUES, estimate, scorers
-from .table import Table, rank
+from .log import open_log
+from .scorer import VALUES, estimate, reader_pin, scorers
+from .table import TAIL_DEFAULTS, Table, rank
 
 STRIP = re.compile(r"^(Route facts|Review tier):.*$", re.IGNORECASE | re.MULTILINE)
 THRESHOLDS = (0.5, 0.7, 0.9)
@@ -132,3 +139,51 @@ def summarize(table: Table, rows: list[dict]) -> dict:
                             "accuracy": round(conf[t]["right"] / conf[t]["answered"], 3)
                             if conf[t]["answered"] else None} for t in THRESHOLDS}
     return out
+
+
+def qualify_reader(table: Table, suite_path: str, sources: dict, log: str,
+                   workspace: str | None = None, commit: str | None = None,
+                   caller=None) -> dict:
+    """Qualify the table's reader on a labelled suite (§4.8) and record it under
+    ``reader:<route>`` in the qualifications file, bound to the reader's pin. It qualifies
+    when the share of cases whose reading gives a lower tier than the labels, and the share
+    of failed readings, are within the table's ``qualify`` bars. A reading fills every fact,
+    as for an unknown fact in ``live`` mode: the case that can lower a tier."""
+    reader = table.data.get("reader")
+    if not reader:
+        raise RouteError("TABLE_INVALID", "the table has no reader")
+    if not sources.get("qualifications"):
+        raise RouteError("SOURCES_INVALID", "the sources file names no qualifications file")
+    suite = load_suite(suite_path)
+    if not suite:
+        raise RouteError("INPUT_INVALID", f"{suite_path}: no cases")
+    suite_pin = "sha256:" + hashlib.sha256(Path(suite_path).read_bytes()).hexdigest()
+    cfg = {"route": reader["route"], "mode": "shadow",
+           **{k: reader[k] for k in ("max_chars", "timeout_s") if k in reader}}
+    tails = {**TAIL_DEFAULTS, **reader.get("tail", {})}
+    lower = errors = 0
+    for case in suite:
+        est = estimate(table, cfg, case["kind"], list(VALUES),
+                       case_text(case, workspace, commit), caller=caller)
+        probs = {f: e["probabilities"] for f, e in est["estimates"].items()
+                 if e.get("probabilities")}
+        if len(probs) < len(VALUES):
+            errors += 1
+            continue
+        reading = {f: tail_value(f, p, tails[f]) for f, p in probs.items()}
+        if rank(tier_of(table, case["kind"], reading)) < rank(
+                tier_of(table, case["kind"], case["facts"])):
+            lower += 1
+    n = len(suite)
+    bars = {"max_tier_lower": 0.10, "max_errors": 0.02, **reader.get("qualify", {})}
+    ok = lower / n <= bars["max_tier_lower"] and errors / n <= bars["max_errors"]
+    rid = reader["route"]
+    entry = {"status": "qualified" if ok else "candidate", "reader_pin": reader_pin(table),
+             "route_id": rid, "suite": Path(suite_path).name, "suite_pin": suite_pin,
+             "cases": n, "tier_lower": lower, "errors": errors, "bars": bars,
+             "at": format_time(datetime.now(UTC))}
+    quals.update(sources["qualifications"], lambda q: q.__setitem__(f"reader:{rid}", entry))
+    with open_log(log) as w:
+        w.ensure_table(table)
+        w.append("route.reader_qualified", entry)
+    return entry
