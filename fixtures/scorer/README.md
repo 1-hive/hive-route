@@ -2,6 +2,8 @@
 
 Labelled tasks for checking the scorer (ROUTING.md §4.3): for each task, the right value of the four facts it estimates (`specification`, `verification`, `scope`, `consequence`). They are for comparing scorers per fact, e.g. a local Qwen through Ollama against a classifier.
 
+For a set any hive can run, with every text inline and real public issues alongside authored tasks, see [`PORTABLE.md`](PORTABLE.md) (`portable.jsonl`, labelled under [`RULES.md`](RULES.md)). The sets below use 1-hive's work orders.
+
 There are two sets, with the same line format:
 
 - **`suite.jsonl`: the main set (59 cases).** Two labellers agree on every label, every case is clear under the labelling rules below, and the scorer sees each case's full text.
@@ -34,7 +36,7 @@ Each line has these fields:
 
 ### Two labellers
 
-The first labeller (Claude) wrote the labels and the rules below. The second, Codex with gpt-6-astra at high effort, labelled all 81 candidate cases blind, from the rules and the text only. They agreed on 76/81 (specification), 80/81 (verification), 77/81 (scope) and 80/81 (consequence). The second labeller marked 20 cases as not settled by the rules. Every case with a disagreement or an unsure mark, 22 in all, moved to `suite-disputed.jsonl`. The second labeller named these gaps in the rules, still open:
+The first labeller (Claude) wrote the labels and the rules below. The second, Codex with gpt-6-astra at high effort, labelled all 81 candidate cases blind, from the rules and the text only. They agreed on 76/81 (specification), 80/81 (verification), 77/81 (scope) and 80/81 (consequence). The second labeller marked 20 cases as not settled by the rules. Every case with a disagreement or an unsure mark, 22 in all, moved to `suite-disputed.jsonl`. The second labeller named these gaps in the rules below; [`RULES.md`](RULES.md) settles them for the portable set:
 - review rules versus rule order for `specification`;
 - a named defect versus a named change;
 - how to count components when both a system and its parts appear;
