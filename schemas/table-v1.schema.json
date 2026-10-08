@@ -464,6 +464,11 @@
         "via_gateway": {
           "type": "boolean",
           "description": "The harness reaches this route through the hive's gateway, asking for the route_id as its model (\u00a78); the gateway calls gateway_model at endpoint."
+        },
+        "api_key_env": {
+          "type": "string",
+          "pattern": "^[A-Z_][A-Z0-9_]*$",
+          "description": "systemone harness: the environment variable holding the bearer key for a hosted decision model (Jev, or Kev behind a key). The key itself never goes in the table."
         }
       }
     }

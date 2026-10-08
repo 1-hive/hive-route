@@ -2,6 +2,12 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 12 — 2026-10-07
+
+- A `systemone` scorer route may name `api_key_env`: the environment variable holding a bearer key. This allows a hosted decision model, such as TypeSafe's Jev (`https://api.typesafe.ai`, `jev-latest`) or Kev deployed behind a key. If the variable is unset, the scorer logs an error and the facts stay unknown.
+
+**Adopters:** nothing required.
+
 ## rev 11 — 2026-10-07
 
 - **Shadow scorers:** `shadow_scorers:` in the table runs more scorers next to `scorer`, always in shadow mode, each with its own `route.scored`; `report`'s scorer counts are per scorer route.

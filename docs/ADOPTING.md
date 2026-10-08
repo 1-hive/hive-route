@@ -138,7 +138,7 @@ The record also requires an actor to re-declare when its configuration changes (
 - `hive-route whatif LOG TABLE2`: the whole log re-decided under a proposed table, before you pin it.
 - `decide --shadow-table TABLE2`: a second table decides alongside, logged and never acted on.
 - The scorer (`scorer:` in the table, a local model) estimates facts a task didn't supply. It starts in shadow mode; make it live only once the report shows its estimates match outcomes.
-- To compare scorers, list more under `shadow_scorers:`; they are logged, never used. A decision model with the System One API (Jev, or Kev run locally) works as a scorer with harness `systemone`. Run `hive-route scorer-eval` on a labelled suite (`fixtures/scorer`) before trusting any scorer.
+- To compare scorers, list more under `shadow_scorers:`; they are logged, never used. A decision model with the System One API works as a scorer with harness `systemone`. It can be Kev run locally (`endpoint: "http://127.0.0.1:8009"`), Kev deployed on Modal, or hosted Jev (`endpoint: "https://api.typesafe.ai"`, `model: jev-latest`). For a hosted one, set `api_key_env: JEV_API_KEY` on the route and put the key in that variable. Run `hive-route scorer-eval` on a labelled suite (`fixtures/scorer`) before trusting any scorer.
 
 ## 9. Long-running OpenClaw agents
 

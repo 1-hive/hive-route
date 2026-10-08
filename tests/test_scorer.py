@@ -210,3 +210,30 @@ def test_systemone_verification_is_two_questions(given, value, p):
     assert set(seen) == {"verification.checked", "verification.controlled"}
     assert est["estimates"]["verification"]["value"] == value
     assert est["estimates"]["verification"]["p"] == p
+
+
+def test_systemone_sends_bearer_key_from_env(monkeypatch):
+    seen = {}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return kev_reply(scope="few").encode()
+
+    def urlopen(req, timeout):
+        seen.update(url=req.full_url, auth=req.get_header("Authorization"))
+        return Resp()
+
+    monkeypatch.setattr(scorer.urllib.request, "urlopen", urlopen)
+    route = {"endpoint": "https://api.typesafe.ai", "api_key_env": "JEV_KEY"}
+    monkeypatch.delenv("JEV_KEY", raising=False)
+    with pytest.raises(ValueError, match="JEV_KEY is not set"):
+        scorer.call_systemone(route, {}, {})
+    monkeypatch.setenv("JEV_KEY", "k")
+    scorer.call_systemone(route, {}, {})
+    assert seen == {"url": "https://api.typesafe.ai/v1/systemone", "auth": "Bearer k"}

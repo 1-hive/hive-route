@@ -27,6 +27,7 @@ less likely answer, so the fact stays unknown).
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -153,10 +154,16 @@ def call_ollama(route: dict, scorer: dict, body: dict) -> str:
 
 
 def call_systemone(route: dict, scorer: dict, body: dict) -> str:
-    """POST to a System One API (Jev, Kev); returns the response body."""
+    """POST to a System One API (Jev, Kev); returns the response body. A hosted endpoint
+    takes a bearer key from the environment variable ``api_key_env`` names."""
     url = route["endpoint"].rstrip("/") + "/v1/systemone"
-    req = urllib.request.Request(url, data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if route.get("api_key_env"):
+        key = os.environ.get(route["api_key_env"])
+        if not key:
+            raise ValueError(f"{route['api_key_env']} is not set")
+        headers["Authorization"] = f"Bearer {key}"
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
     with urllib.request.urlopen(req, timeout=scorer.get("timeout_s", 60)) as r:
         return r.read().decode()
 
