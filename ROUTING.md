@@ -3,7 +3,7 @@
 **Status:** built · 2026-10-07 · rev 12 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
 
-**Changes in rev 13 (proposed, not built):** a second reader of the facts (§4.8). A decision model reads every attempt's facts. It may raise a stated fact when confident, never lower one, and it fills deliberately unknown facts only under a confidence threshold. It is qualified like a route, and a hosted reader needs explicit egress approval.
+**Changes in rev 13 (proposed, not built):** a second reader of the facts (§4.8). A decision model reads every attempt's facts. It may raise a stated fact when confident, never lower one, and it fills deliberately unknown facts only under a confidence threshold. It is qualified like a route, runs `shadow` then `live`, and a hosted reader needs explicit egress approval.
 
 **Changes in rev 12:** a `systemone` scorer can be hosted (Jev, or Kev behind a key): the route's `api_key_env` names the variable that holds its bearer key (§4.3).
 
@@ -229,12 +229,11 @@ Implemented in `src/hiveroute/decide.py`; the schemas are `schemas/request-v1.sc
 
 5. **The reader is qualified like a route (§3).** Its pin covers the route, the model version and the question wording. It qualifies on a labelled suite (`fixtures/scorer/portable.jsonl`, or a hive's own) against bars in the table, for example at most 10% of cases where the tier from its readings is below the labels' tier, and at least the table's accuracy per fact. A change to any part of the pin voids the qualification. An unqualified reader runs in `shadow` mode only.
 
-6. **Modes, rolled out in order:**
+6. **Two modes:**
    - **`shadow`:** readings are logged, never used.
-   - **`raise`:** a reading may raise a fact, stated or unknown, never lower one.
-   - **`live`:** `raise`, plus filling unknown facts under `tail`.
+   - **`live`:** readings raise stated facts (`raise_at`) and fill unknown facts (`tail`).
 
-   A hive moves up one step at a time, on the evidence of the step before.
+   A hive goes `live` only on its `shadow` evidence: qualification (5), the disagreement report (4), and the capacity that raises would have cost.
 
 **What doesn't change.** The reader never sets a tier or picks a route. Minimum tiers (F1–F8), the creator's hint, overrides, capacity checks and waiting instead of downgrading all stay. Every decision replays.
 
@@ -246,7 +245,7 @@ Implemented in `src/hiveroute/decide.py`; the schemas are `schemas/request-v1.sc
 ```yaml
 reader:
   route: kev-4b
-  mode: shadow            # shadow | raise | live
+  mode: shadow            # shadow | live
   raise_at: 0.9           # reader confidence needed to raise a stated fact
   tail: {specification: 0.1, verification: 0.1, scope: 0.1, consequence: 0.05}
   qualify: {suite: fixtures/scorer/portable.jsonl, max_tier_lower: 0.10}
@@ -265,14 +264,14 @@ It deliberately differs in two ways:
 **Build steps.**
 1. `read_facts` in the request schema; facts with a source in the decision; replay.
 2. The `reader:` table block with modes and thresholds; `egress` checks.
-3. `raise` and `tail` resolution in `decide()`.
+3. `raise_at` and `tail` resolution in `decide()`.
 4. Reader qualification: `scorer-eval` as its canary, bound to its pin.
 5. `report`: disagreement rates per writer and fact, raise rate, and how often the reader changed the tier.
-6. 1-hive: shadow, then `raise`; `live` once evidence supports it.
+6. Each hive: `shadow`, then `live` once its evidence supports it.
 
 **Open questions.**
 - **Thresholds:** are 0.9 and 0.1 right? Set them from the reader's calibration on the suite and on real disagreements.
-- **Raise rate:** how much extra capacity do raises cost? Measure it in `shadow` before enabling `raise`.
+- **Raise rate:** how much extra capacity do raises cost? Measure it in `shadow` before going `live`.
 - **Reviews:** should the reader's questions differ for `kind: review`?
 - **Learning:** whether to fine-tune the reader on a hive's labelled disagreements. That changes its pin, so it requalifies.
 

@@ -4,7 +4,7 @@ What changed in each revision of hive-route, and what a hive running it needs to
 
 ## rev 13 — 2026-10-08 (design, not built)
 
-- ROUTING.md §4.8 proposes a second reader of the facts. A decision model (Kev) reads all four facts on every attempt with text. It may raise a stated fact when confident (`raise_at`) and never lower one. It fills deliberately unknown facts only within a `tail` threshold. It is qualified on a labelled suite like a route, rolls out shadow → raise → live, and a hosted reader needs `egress: allowed`. For review with the Omega/Iter routing specification's authors.
+- ROUTING.md §4.8 proposes a second reader of the facts. A decision model (Kev) reads all four facts on every attempt with text. It may raise a stated fact when confident (`raise_at`) and never lower one. It fills deliberately unknown facts only within a `tail` threshold. It is qualified on a labelled suite like a route, runs `shadow` then `live`, and a hosted reader needs `egress: allowed`. For review with the Omega/Iter routing specification's authors.
 
 **Adopters:** nothing; no code changed.
 
