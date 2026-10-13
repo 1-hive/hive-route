@@ -20,7 +20,7 @@ def build_log(tmp_path) -> Path:
     log = tmp_path / "log.jsonl"
     assert main(["mode", "fixed", TABLE_PATH, "--log", str(log)]) == 0
     req = tmp_path / "req.json"
-    req.write_text(json.dumps({"task": "t1", "attempt": "t1.worker.0",
+    req.write_text(json.dumps({"task": "t1", "attempt": "t1.worker.0", "runtime": "container",
                                "facts": {"kind": "work", "scope": "few"}}))
     assert main(["decide", TABLE_PATH, str(req), "--log", str(log)]) == 0
     st = tmp_path / "limited.json"
@@ -47,6 +47,9 @@ def test_summaries_are_compact_and_bound_to_the_log(tmp_path, capsys):
     assert "fixed" in decided["rules"] and "F5" in decided["rules"]
     waiting = out[3][1]
     assert (waiting["decision"], waiting["wait_until"]) == ("wait", "2026-09-29T15:00:00Z")
+    # the runtime only when asked (hive-record A4): older record policies refuse it
+    assert "runtime" not in decided
+    assert summary(events[2], {}, runtime=True)[1]["runtime"] == "container"
 
 
 @pytest.mark.skipif(not RECORD_SCHEMAS.is_dir(), reason="no hive-record checkout alongside")
@@ -54,7 +57,7 @@ def test_summaries_match_the_record_schemas(tmp_path, capsys):
     log = build_log(tmp_path)
     capsys.readouterr()
     for ev in read(log):
-        type_, data = summary(ev, {})
+        type_, data = summary(ev, {}, runtime=True)
         schema = json.loads((RECORD_SCHEMAS / f"{type_}.schema.json").read_text())
         errors = list(Draft202012Validator(schema).iter_errors(data))
         assert not errors, (type_, [e.message for e in errors])

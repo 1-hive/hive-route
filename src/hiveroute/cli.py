@@ -172,6 +172,9 @@ def _parser() -> argparse.ArgumentParser:
     rc.add_argument("log")
     rc.add_argument("--hive-cmd", default="hive", help="the hive CLI (identity from HIVE_* env)")
     rc.add_argument("--dry-run", action="store_true", help="print the events instead")
+    rc.add_argument("--with-runtime", action="store_true",
+                    help="route.decided carries the request's runtime (needs the record's core "
+                    "table 1.2.0, hive-record A4)")
 
     ab = sub.add_parser("attempt-budget", help="the gateway tag budget that caps one attempt on "
                         "a metered route (JSON), or nothing")
@@ -415,7 +418,7 @@ def _run(args: argparse.Namespace) -> int:
     if args.cmd == "record":
         from .record import emit_with_hive
         posted, errors = sync(args.log, lambda t, d, k: emit_with_hive(t, d, k, args.hive_cmd),
-                              args.dry_run)
+                              args.dry_run, args.with_runtime)
         for e in errors:
             print(f"hive-route: record: {e}", file=sys.stderr)
         if not args.dry_run:

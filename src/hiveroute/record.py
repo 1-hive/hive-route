@@ -13,6 +13,10 @@ idempotency key made from the entry's seq and digest, so a repeated sync never r
 twice. Progress is kept in ``<log>.recorded``. ``route.scored`` and
 ``route.shadow_decided`` stay in the router's log: they are evaluation data, not
 decisions the hive acted on.
+
+With ``runtime=True``, ``route.decided`` also carries the request's ``runtime`` (hive-record
+amendment A4). Turn it on only once the record's policy has core table 1.2.0: earlier tables
+refuse the field, and sync then stops at that entry until the policy changes.
 """
 
 from __future__ import annotations
@@ -51,7 +55,7 @@ def _facts(decision: dict) -> dict:
     return f
 
 
-def summary(ev: dict, tables: dict) -> tuple[str, dict] | None:
+def summary(ev: dict, tables: dict, runtime: bool = False) -> tuple[str, dict] | None:
     """The record event (type, data) for a log entry, or None if it isn't recorded."""
     t, d = ev["type"], ev["data"]
     if t not in RECORDED:
@@ -74,6 +78,8 @@ def summary(ev: dict, tables: dict) -> tuple[str, dict] | None:
             for k in ("harness", "effort"):
                 if dec.get(k):
                     data[k] = dec[k]
+            if runtime and d.get("request", {}).get("runtime"):
+                data["runtime"] = d["request"]["runtime"]
             return t, data
         data = {"task": dec["task"], "attempt": dec["attempt"], "mode": d["mode"],
                 "table": d["table"], "decision": dec["decision"],
@@ -108,13 +114,13 @@ ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 def record_refuses(data: dict) -> str | None:
     """Why the record would refuse this summary's ids (its id syntax), or None."""
-    for k in ("task", "route_id", "pool", "suite"):
+    for k in ("task", "route_id", "pool", "suite", "runtime"):
         if k in data and not ID.match(str(data[k])):
             return f"{k} {data[k]!r} isn't a record id"
     return None
 
 
-def sync(log: str, emit=None, dry_run: bool = False) -> tuple[int, list[str]]:
+def sync(log: str, emit=None, dry_run: bool = False, runtime: bool = False) -> tuple[int, list[str]]:
     """Post every unrecorded entry. Returns (posted, errors); stops at the first error,
     so the record's order follows the log's."""
     emit = emit or emit_with_hive
@@ -124,7 +130,7 @@ def sync(log: str, emit=None, dry_run: bool = False) -> tuple[int, list[str]]:
     for ev in read(log):
         if ev["seq"] <= done:
             continue
-        s = summary(ev, {})
+        s = summary(ev, {}, runtime)
         if s is not None:
             type_, data = s
             key = f"route-{ev['seq']}-{data['log']['digest'][7:23]}"

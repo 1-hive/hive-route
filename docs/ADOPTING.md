@@ -127,7 +127,7 @@ A route serves live traffic only once qualified at its current pin.
 
 ## 7. On a hive record
 
-With [hive-record](https://github.com/1-hive/hive-record) at amendment A1 (tag `spec-v1.0-a1`), the router records its decisions: register an actor of class `instrument` with its own key, then run `hive-route record LOG` with that identity (`HIVE_URL`, `HIVE_ID`, `HIVE_KEY_FILE`) after each decision. It posts compact summaries bound to the log's full entries, once each, and skips entries the record would refuse. Sync only your real log, never a scratch one: a test run synced by mistake leaves its entries on an append-only record.
+With [hive-record](https://github.com/1-hive/hive-record) at amendment A1 (tag `spec-v1.0-a1`), the router records its decisions: register an actor of class `instrument` with its own key, then run `hive-route record LOG` with that identity (`HIVE_URL`, `HIVE_ID`, `HIVE_KEY_FILE`) after each decision. It posts compact summaries bound to the log's full entries, once each, and skips entries the record would refuse. Sync only your real log, never a scratch one: a test run synced by mistake leaves its entries on an append-only record. Once your record's policy has hive-record amendment A4 (tag `spec-v1.0-a4`), add `--with-runtime` so each decision on the record also says where the attempt ran.
 
 The record also requires an actor to re-declare when its configuration changes (SPEC §6.2). A routed actor's model can change at every attempt, so before an attempt whose harness or model differs from the actor's declaration, the launcher emits `actor.declared` with the actor's own key (`model_route`: `<route_id>: <model> (<effort>)`); 1-hive's launcher shows how.
 
