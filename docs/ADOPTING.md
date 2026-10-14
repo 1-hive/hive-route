@@ -147,6 +147,8 @@ The record also requires an actor to re-declare when its configuration changes (
 
   Go `live` only on that evidence. In `live` mode the reader raises confident disagreements and fills unknown facts; it never lowers a stated fact.
 
+- **Subagents (ROUTING.md §4.9).** On a `claude-code` harness, list cheaper routes a worker may hand subtasks to: `subagents: {opus-plan: [sonnet-plan]}` (same pool and harness, no `effort`, same tier or below). For each entry in a decision's `subagents`, write `.claude/agents/<route_id>.md` in the attempt's folder with `model:` set to its model, and tell the worker to use it for well-specified subtasks with a clear check. Make the manifest with `hive-route manifest` so `observe` accepts those models.
+
 ## 9. Long-running OpenClaw agents
 
 If your agents run continuously and take their model from an OpenClaw config (chat bots, Iter on an OpenClaw backend), there's no launcher to put the router in front of. Bind them instead (ROUTING.md §9.3). Everything below has a worked example: [`fixtures/tables/openclaw.yaml`](../fixtures/tables/openclaw.yaml) (a table), [`examples/openclaw-bindings.yaml`](../examples/openclaw-bindings.yaml), [`examples/openclaw-sources.yaml`](../examples/openclaw-sources.yaml) and [`examples/openclaw-bind.sh`](../examples/openclaw-bind.sh). Keep your own copies of these with your deployment, not in this repository: they describe your infrastructure.

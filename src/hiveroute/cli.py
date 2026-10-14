@@ -280,11 +280,14 @@ def _run(args: argparse.Namespace) -> int:
         d = _read_json(args.decision)
         if d.get("decision") != "route":
             raise RouteError("INPUT_INVALID", "a manifest is only for a routed decision")
-        print(json.dumps({
+        m = {
             "format": "hive-route.attempt/1", "attempt": d["attempt"], "task": d["task"],
             "route_id": d["route_id"], "route_pin": d["route_pin"], "model": d["model"],
             "effort": d.get("effort"), "harness": d["harness"], "cwd": args.cwd,
-            "output": args.output, "started_at": format_time(datetime.now(UTC))}, indent=2))
+            "output": args.output, "started_at": format_time(datetime.now(UTC))}
+        if d.get("subagents"):
+            m["subagents"] = [{"route_id": s["route_id"], "model": s["model"]} for s in d["subagents"]]
+        print(json.dumps(m, indent=2))
         return 0
 
     if args.cmd == "observe":

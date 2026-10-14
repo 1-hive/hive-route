@@ -316,6 +316,21 @@
           "description": "Bars for reader-qualify: the share of suite cases where the reading gives a lower tier than the labels, and the share of failed readings (defaults 0.10, 0.02)."
         }
       }
+    },
+    "subagents": {
+      "type": "object",
+      "description": "Routes a worker may hand subtasks to inside its attempt (\u00a74.9): route id -> routes in the same pool and harness, in its tier or below. A table without it gives no subagents.",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      }
     }
   },
   "$defs": {

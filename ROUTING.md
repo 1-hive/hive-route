@@ -1,7 +1,9 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-10-08 · rev 13 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
+**Status:** built · 2026-10-14 · rev 14 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
+
+**Changes in rev 14:** subagents inside an attempt (§4.9). A table may list, per route, cheaper routes in the same pool and harness that a worker can hand subtasks to without ending its attempt. The decision names the eligible ones, the launcher offers them to the worker, and their models aren't drift.
 
 **Changes in rev 13:** a second reader of the facts (§4.8). A decision model reads every attempt's facts. It may raise a stated fact when confident, never lower one, and it fills deliberately unknown facts only under a confidence threshold. It is qualified like a route, runs `shadow` then `live`, and a hosted reader needs explicit egress approval.
 
@@ -290,6 +292,35 @@ It deliberately differs in two ways:
 - **Reviews:** should the reader's questions differ for `kind: review`?
 - **Learning:** whether to fine-tune the reader on a hive's labelled disagreements. That changes its pin, so it requalifies.
 
+### 4.9 Subagents inside an attempt (rev 14)
+
+**Why.** A route is chosen per attempt (§2), so a strong attempt runs every step on its strong model, including the mechanical ones: reading files, running tests, a well-specified edit. Checkpoints (§4.5) move a whole task down, but only between attempts. A worker on a harness with subagents can instead hand such a subtask to a cheaper model and keep going. On a subscription, that moves work to a model with its own, larger allowance.
+
+**Table.** A top-level `subagents` map: route id → routes its workers may use as subagents.
+```yaml
+subagents:
+  opus-plan: [sonnet-plan]
+  opus-std: [sonnet-plan]
+```
+It sits outside the routes, so adding it changes the table's pin but no route's pin, and no qualification is lost. Each listed route must:
+- share the parent's **pool and harness** (one process, one set of credentials, so the parent's capacity check covers it);
+- set **no `effort`** (a harness can't give a subagent its own effort, and a route's qualification is for its effort);
+- be in the parent's **tier or below**.
+
+Only `claude-code` harnesses run subagents.
+
+**Decision.** When the chosen route has an entry, the decision adds `subagents`: each listed route that passes the same checks as a route (RT2 qualification and fit, RT4 family for reviews), with its `route_pin` and `model`. A listed route that fails is in `rejected`, and a reason with rule `SA` names the ones given. Decisions for routes without an entry are unchanged, so earlier logs replay as they were.
+
+**Launcher.** For each subagent the launcher writes a Claude Code agent file in the attempt's folder (`.claude/agents/<route_id>.md`, `model:` the route's model) and tells the worker when to use it: well-specified subtasks with a clear check (search and read, run tests, a mechanical edit across files), never the judgement the task's tier is for. The manifest (`hive-route manifest`) lists the subagents.
+
+**Drift.** `observe` accepts the manifest's subagent models (Claude Code reports subagent turns in the same stream, with `parent_tool_use_id`). Any other model is still drift.
+
+**What doesn't change.** The attempt's tier, route and pool. The worker, not the router, decides which subtasks to hand down, and stays responsible for the result. Usage counts against the same pool.
+
+**Open questions.**
+- **Evidence:** the share of an attempt's tokens that ran on subagents, and whether results on attempts that used them pass review as often. Claude Code's final `result` line has usage per model (`modelUsage`).
+- **Smaller models:** a route on a smaller model (e.g. Haiku) needs its own qualification before it can be listed.
+
 ---
 
 ## 5. Failure classes
@@ -540,7 +571,7 @@ Every step is built (2026-09-29); what's left is operational (§11.1).
 | Automatic table changes without human approval | Many approved tuning changes in a row with no regressions |
 | The router's own spend ledger | Gateway budget enforcement proves inadequate in testing or use |
 | Budgets across several hives or gateways | Several hives share one pool |
-| Switching models within an attempt | Measured evidence that restart handoffs are too costly |
+| Switching the attempt's own model mid-attempt (subagents, §4.9, cover delegated subtasks) | Measured evidence that restart handoffs are too costly |
 | Multi-operator route attestation | Several operators share routes (One Hive M2) |
 
 ---

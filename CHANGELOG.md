@@ -2,6 +2,14 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 14 — 2026-10-14
+
+- **Subagents inside an attempt** (ROUTING.md §4.9). A top-level `subagents` map lists, per route, cheaper routes a worker may hand subtasks to: same pool and harness (`claude-code`), no `effort`, same tier or below. Route pins don't change.
+- Decisions on such a route carry `subagents` (the eligible ones, with pins and models) and an `SA` reason; ineligible ones are in `rejected`.
+- `hive-route manifest` copies them into the attempt manifest, and `observe` doesn't count their models as drift.
+
+**Adopters:** nothing to change. To use it, add `subagents:` to the table and have the launcher write a Claude Code agent file per subagent (`.claude/agents/<route_id>.md` with `model:`) in the attempt's folder.
+
 ## rev 13 — 2026-10-08
 
 - **A second reader of the facts** (ROUTING.md §4.8). The table's `reader` (a `systemone` route, e.g. Kev) reads all four facts on every attempt with text and logs `route.read`.

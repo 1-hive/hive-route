@@ -127,7 +127,9 @@ def observe(manifests: list[str], log: str, qualifications: str | None = None,
         observed = observed_models(m, codex_root)
         # A harness's own auxiliary models (e.g. Codex's approval reviewer) aren't drift.
         # A harness reports a gateway route by its alias, the route_id (§8).
-        allowed = {m["model"], m["route_id"], *(aux or {}).get(m["harness"], ())}
+        # The attempt's subagent routes (§4.9) are allowed too.
+        allowed = {m["model"], m["route_id"], *(aux or {}).get(m["harness"], ()),
+                   *(s["model"] for s in m.get("subagents", ()))}
         drifted = sorted(x for x in observed if x not in allowed)
         if not drifted:
             continue

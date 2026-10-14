@@ -16,6 +16,13 @@
     "harness": {"type": "string", "minLength": 1},
     "cwd": {"type": "string", "minLength": 1},
     "output": {"type": "string", "minLength": 1},
-    "started_at": {"type": "string", "format": "date-time"}
+    "started_at": {"type": "string", "format": "date-time"},
+    "subagents": {
+      "type": "array",
+      "description": "Subagent routes the attempt may use (ROUTING.md §4.9); their models aren't drift.",
+      "items": {"type": "object", "additionalProperties": false, "required": ["route_id", "model"],
+                "properties": {"route_id": {"type": "string", "minLength": 1},
+                               "model": {"type": "string", "minLength": 1}}}
+    }
   }
 }

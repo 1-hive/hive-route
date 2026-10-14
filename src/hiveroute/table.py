@@ -175,6 +175,27 @@ def _check(data: dict) -> None:
         tails = {**TAIL_DEFAULTS, **reader.get("tail", {})}
         if any(t >= reader.get("raise_at", 0.9) for t in tails.values()):
             raise RouteError("TABLE_INVALID", "reader: every tail must be below raise_at")
+    for rid, subs in data.get("subagents", {}).items():
+        where = f"subagents/{rid}"
+        if rid not in routes:
+            raise RouteError("TABLE_INVALID", f"{where}: unknown route {rid!r}")
+        parent = routes[rid]
+        if not str(parent.get("harness", "")).startswith("claude-code"):
+            raise RouteError("TABLE_INVALID", f"{where}: only claude-code harnesses run subagents")
+        for sid in subs:
+            if sid not in routes:
+                raise RouteError("TABLE_INVALID", f"{where}: unknown route {sid!r}")
+            sub = routes[sid]
+            if sid == rid:
+                raise RouteError("TABLE_INVALID", f"{where}: a route can't be its own subagent")
+            if sub["pool"] != parent["pool"] or sub.get("harness") != parent.get("harness"):
+                raise RouteError("TABLE_INVALID", f"{where}: {sid!r} needs the same pool and "
+                                 "harness (one process, one set of credentials)")
+            if "effort" in sub:
+                raise RouteError("TABLE_INVALID", f"{where}: {sid!r} sets an effort, which a "
+                                 "subagent can't be given")
+            if rank(sub["tier"]) > rank(parent["tier"]):
+                raise RouteError("TABLE_INVALID", f"{where}: {sid!r} is in a higher tier")
     if "strong" in data["allow_upgrade_on_wait"]:
         raise RouteError("TABLE_INVALID", "allow_upgrade_on_wait: strong has no tier above it")
 

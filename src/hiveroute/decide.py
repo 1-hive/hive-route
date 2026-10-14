@@ -390,6 +390,18 @@ def decide(request: dict, table: Table, state: dict, mode: str = "live") -> dict
                    endpoint=route.get("endpoint"), effort=route.get("effort"))
         if route.get("via_gateway"):  # only when set, so earlier logged decisions replay as they were
             out["via_gateway"] = True
+        subs = table.data.get("subagents", {}).get(rid)
+        if subs:  # §4.9: only when the table lists some, so earlier decisions replay as they were
+            out["subagents"] = []
+            for sid in subs:
+                c = check_route(sid, table, state, request, views)
+                if c.ok:
+                    out["subagents"].append({"route_id": sid, "route_pin": table.route_pin(sid),
+                                             "model": table.routes[sid]["model"]})
+                else:
+                    out["rejected"][sid] = c.unfit + c.blocked
+            reasons.append(_reason("SA", "subagents: " + (", ".join(
+                s["route_id"] for s in out["subagents"]) or "none eligible")))
         return out
 
     # RT1: an operator override wins, in every mode.
