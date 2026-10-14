@@ -2,6 +2,12 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 15 — 2026-10-14
+
+- **A request may list the `harnesses` its runner can start** (ROUTING.md §4.4, RT2). Routes on any other harness are ruled out as unfit (`RT2: harness … not available to this attempt's runner`), so a runner missing a harness's credentials gets another route in the tier, or `no_route`, instead of a route it can't launch. Before, 1-hive's worker without a Codex login was sent to Codex whenever the Claude pool passed its soft threshold (RT6), and every launch failed.
+
+**Adopters:** nothing to change; without `harnesses`, decisions are unchanged. A launcher that knows which credentials an actor holds should send them.
+
 ## rev 14 — 2026-10-14
 
 - **Subagents inside an attempt** (ROUTING.md §4.9). A top-level `subagents` map lists, per route, cheaper routes a worker may hand subtasks to: same pool and harness (`claude-code`), no `effort`, same tier or below. Route pins don't change.

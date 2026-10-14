@@ -80,6 +80,8 @@
     },
     "context_tokens": {"type": "integer", "minimum": 0},
     "tools_needed": {"type": "boolean"},
+    "harnesses": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1},
+                  "description": "The harnesses the attempt's runner can start, e.g. those it holds credentials for; routes on any other harness are ruled out (RT2). Absent: no restriction."},
     "estimate": {
       "type": "object",
       "additionalProperties": false,

@@ -276,6 +276,8 @@ def check_route(rid: str, table: Table, state: dict, request: dict, views: dict)
                            f"{route['context_limit']} with margin")
     if "kinds" in route and kind not in route["kinds"]:
         c.unfit.append(f"RT2: serves only {', '.join(route['kinds'])}")
+    if "harnesses" in request and "harness" in route and route["harness"] not in request["harnesses"]:
+        c.unfit.append(f"RT2: harness {route['harness']} not available to this attempt's runner")
     if request.get("tools_needed", True) and route.get("tools") is not True:
         c.unfit.append("RT2: tool use " + ("unsupported" if "tools" in route else "unknown"))
 
