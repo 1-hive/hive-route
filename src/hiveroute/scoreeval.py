@@ -31,7 +31,7 @@ from .canonical import UTC, format_time
 from .decide import compute_tier, resolve_facts, tail_value
 from .errors import RouteError
 from .log import open_log
-from .scorer import VALUES, estimate, reader_pin, scorers
+from .scorer import VALUES, estimate, reader_pin, scorers, served_run
 from .table import TAIL_DEFAULTS, Table, rank
 
 STRIP = re.compile(r"^(Route facts|Review tier):.*$", re.IGNORECASE | re.MULTILINE)
@@ -143,15 +143,26 @@ def summarize(table: Table, rows: list[dict]) -> dict:
 
 def qualify_reader(table: Table, suite_path: str, sources: dict, log: str,
                    workspace: str | None = None, commit: str | None = None,
-                   caller=None) -> dict:
+                   caller=None, served=served_run) -> dict:
     """Qualify the table's reader on a labelled suite (§4.8) and record it under
     ``reader:<route>`` in the qualifications file, bound to the reader's pin. It qualifies
     when the share of cases whose reading gives a lower tier than the labels, and the share
     of failed readings, are within the table's ``qualify`` bars. A reading fills every fact,
-    as for an unknown fact in ``live`` mode: the case that can lower a tier."""
+    as for an unknown fact in ``live`` mode: the case that can lower a tier. A route with
+    ``weights`` qualifies only if its endpoint serves those weights, where its model card says
+    (``served``); the entry's ``weights_checked`` tells whether it did."""
     reader = table.data.get("reader")
     if not reader:
         raise RouteError("TABLE_INVALID", "the table has no reader")
+    route, run = table.routes[reader["route"]], None
+    if route.get("weights"):
+        try:  # a gated endpoint may serve no card; then the weights are taken on trust
+            run = served(route)
+        except (OSError, ValueError):
+            run = None
+        if run is not None and run != route["weights"]:
+            raise RouteError("INPUT_INVALID", f"{reader['route']}: the endpoint serves {run!r}, "
+                             f"the table names weights {route['weights']!r}")
     if not sources.get("qualifications"):
         raise RouteError("SOURCES_INVALID", "the sources file names no qualifications file")
     suite = load_suite(suite_path)
@@ -182,6 +193,8 @@ def qualify_reader(table: Table, suite_path: str, sources: dict, log: str,
              "route_id": rid, "suite": Path(suite_path).name, "suite_pin": suite_pin,
              "cases": n, "tier_lower": lower, "errors": errors, "bars": bars,
              "at": format_time(datetime.now(UTC))}
+    if route.get("weights"):
+        entry["weights_checked"] = run is not None
     quals.update(sources["qualifications"], lambda q: q.__setitem__(f"reader:{rid}", entry))
     with open_log(log) as w:
         w.ensure_table(table)

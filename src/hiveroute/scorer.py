@@ -164,6 +164,19 @@ def call_systemone(route: dict, scorer: dict, body: dict) -> str:
         return r.read().decode()
 
 
+def served_run(route: dict) -> str | None:
+    """The run a System One endpoint says it serves (``run`` on its model card at
+    ``/v1/models``, as Kev's server gives it), or None if the card has none."""
+    url = route["endpoint"].rstrip("/") + "/v1/models"
+    headers = {}
+    if route.get("api_key_env") and os.environ.get(route["api_key_env"]):
+        headers["Authorization"] = f"Bearer {os.environ[route['api_key_env']]}"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+        cards = json.loads(r.read().decode()).get("models", [])
+    card = next((c for c in cards if c.get("name") == route["model"]), None)
+    return card.get("run") if card else None
+
+
 CALLERS: dict[str, Caller] = {
     "ollama": lambda route, scorer, body: call_ollama(route, scorer, body),
     "systemone": lambda route, scorer, body: call_systemone(route, scorer, body),

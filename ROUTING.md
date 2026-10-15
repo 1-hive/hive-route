@@ -1,7 +1,9 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-10-14 · rev 15 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
+**Status:** built · 2026-10-14 · rev 16 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
+
+**Changes in rev 16:** a route may name the `weights` its endpoint serves, for a self-hosted model that keeps its name across checkpoints. They're part of the route's pin, and `reader-qualify` checks them against the endpoint's model card (§4.8). It also adds the first fine-tuned reader: Kev-4B trained on `fixtures/reader-train/`, 96% of facts right on the portable set where Kev-4B 1.0 gets 76%, and no case below the labels' tier where 1.0 had 10 (§4.8, "Learning").
 
 **Changes in rev 15:** a request may list the `harnesses` its runner can start, and RT2 rules out routes on any other (§4.4). A runner missing a harness's credentials then gets another route, or waits, instead of a route it can't launch (1-hive, 2026-10-14: a worker without a Codex login was routed to Codex when the Claude pool passed its soft threshold).
 
@@ -243,12 +245,14 @@ Implemented in `src/hiveroute/decide.py`; the schemas are `schemas/request-v1.sc
 
 **Egress.** A reader that isn't on the router's host sends task text out, to a hosted model or someone else's deployment. A route with `api_key_env` or a non-loopback endpoint must set `egress: allowed` in the table, or the table is rejected. Sending text out is then an explicit, recorded decision of whoever approves the table. This matches the data-egress policy of the Omega/Iter routing specification.
 
+**Weights.** A self-hosted model may keep its name when its weights change: Kev's server answers as `kev-latest` whatever run it serves. Then the route's pin wouldn't change with the weights, and a qualification would outlive the model it qualified. Such a route names its weights (rev 16): `weights: runs/reader-ft-v1`. They're part of the route's pin, so new weights void the qualification. `reader-qualify` reads the endpoint's model card (`/v1/models`, the card for the route's `model`). If the card names a `run` that differs from `weights`, it refuses. If there's no card (a gate that serves only `/v1/systemone`), it qualifies on trust and records `weights_checked: false`. A new checkpoint gets a new run name, never an old one.
+
 **Input.** The reader gets the task's objective and the evidence it rests on: the work order, or for an episode the objective plus its context. It doesn't get just the last message (Omega/Iter routing specification, F08). Text is capped at the reader's `max_chars`.
 
 **Table:**
 ```yaml
 reader:
-  route: kev-4b
+  route: kev-4b           # with weights: on the route when its model name doesn't change with them
   mode: shadow            # shadow | live
   raise_at: 0.9           # reader confidence needed to raise a stated fact
   tail: {consequence: 0.3}   # per fact; default 0.3 each
@@ -292,7 +296,14 @@ It deliberately differs in two ways:
 - **Thresholds:** 0.3 is set on the portable set, and 0.9 is a guess. Confirm both on real disagreements.
 - **Raise rate:** how much extra capacity do raises cost? Measure it in `shadow` before going `live`.
 - **Reviews:** should the reader's questions differ for `kind: review`?
-- **Learning:** whether to fine-tune the reader on a hive's labelled disagreements. That changes its pin, so it requalifies.
+- **Learning:** fine-tuning works (rev 16). Kev-4B was fine-tuned on 1,410 texts labelled under `fixtures/scorer/RULES.md`; [`fixtures/reader-train/`](fixtures/reader-train/README.md) has the data, the leakage check and the full numbers. With the same labelling rules (argmax, as in `fixtures/scorer/PORTABLE.md`):
+
+  | | Portable facts right | Tier lower / same / higher | Suite (59) | Held out (123) |
+  |---|---|---|---|---|
+  | Kev-4B 1.0 | 76% | 10 / 77 / 15 | | 79% |
+  | Kev-4B fine-tuned (`reader-ft-v1`) | 96% | 0 / 99 / 3 | 96%, 0 lower | 98% |
+
+  Its labels and the portable set's come from the same rules and similar labellers, so part of the gain is learning those rules. That is the point, since the rules define the facts, but a hive's own `shadow` evidence is still the test. Fine-tuning on a hive's own labelled disagreements is the next step. The tail thresholds above were set on Kev-4B 1.0. Recheck them with `reader-qualify` on the fine-tuned reader, whose temperature (2.3) was fitted on held-out records.
 
 ### 4.9 Subagents inside an attempt (rev 14)
 

@@ -2,6 +2,18 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 16 — 2026-10-14
+
+- **A route may name its `weights`** (ROUTING.md §4.8). This is for a self-hosted model that keeps its name across checkpoints, such as Kev's `kev-latest`. The weights are part of the route's pin, so new weights void the qualification. `reader-qualify` refuses when the endpoint's model card (`/v1/models`) names a different `run`. Where there's no card, it qualifies on trust and records `weights_checked: false`.
+- **A fine-tuned reader:** Kev-4B trained on `fixtures/reader-train/` (1,659 agreed labels, leakage-checked), with the scripts that built and trained it (`scripts/reader-train/`). It gets 96% on the portable set, where Kev-4B 1.0 gets 76%, with no case below the labels' tier (1.0: 10). On held-out records it gets 98% (1.0: 79%). `PORTABLE.md` and `fixtures/reader-train/README.md` have the numbers.
+
+**Adopters:** nothing to change. To use the fine-tuned reader:
+1. Serve the run with Kev (`kev.serve --run <run>`).
+2. Add `weights: <run>` to the reader's route.
+3. Run `reader-qualify` again.
+
+A hive that reads through someone else's Kev (a gate) must add the same `weights` as the serving host and requalify whenever that host changes its run.
+
 ## rev 15 — 2026-10-14
 
 - **A request may list the `harnesses` its runner can start** (ROUTING.md §4.4, RT2). Routes on any other harness are ruled out as unfit (`RT2: harness … not available to this attempt's runner`), so a runner missing a harness's credentials gets another route in the tier, or `no_route`, instead of a route it can't launch. Before, 1-hive's worker without a Codex login was sent to Codex whenever the Claude pool passed its soft threshold (RT6), and every launch failed.

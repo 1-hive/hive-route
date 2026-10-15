@@ -568,6 +568,11 @@
             "allowed"
           ],
           "description": "This route may receive task text although it leaves the host (an api_key_env, or a non-loopback endpoint). Required for such a route used as a scorer or reader (\u00a74.8)."
+        },
+        "weights": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The weights the endpoint serves, when `model` names the server rather than its weights (a self-hosted model that keeps its name across checkpoints, e.g. Kev's `kev-latest`). Part of the route's pin, so new weights void its qualification. For a `systemone` route, reader-qualify checks it against the `run` on the endpoint's model card (\u00a74.8)."
         }
       }
     }

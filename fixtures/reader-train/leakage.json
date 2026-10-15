@@ -1,0 +1,310 @@
+{
+ "eval_texts": 281,
+ "candidates": 3070,
+ "excluded_ids": 49,
+ "excluded_repos": 44,
+ "excluded_prs": 49,
+ "id_repo_pr_hits": [],
+ "thresholds": {
+  "cosine": 0.4,
+  "jaccard": 0.15
+ },
+ "drop": [
+  "authored:b000-20",
+  "authored:b003-10",
+  "authored:b006-19",
+  "authored:b019-19",
+  "authored:b021-24",
+  "authored:b023-18",
+  "authored:b029-05",
+  "authored:b033-09",
+  "authored:b035-11",
+  "authored:b036-18",
+  "authored:b041-11",
+  "authored:b043-21",
+  "authored:b050-14",
+  "authored:b057-11",
+  "authored:b065-17",
+  "authored:b071-02",
+  "authored:b075-16",
+  "authored:b083-18"
+ ],
+ "flagged": [
+  {
+   "id": "authored:b075-16",
+   "cosine": 0.568,
+   "jaccard": 0.238,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b023-18",
+   "cosine": 0.531,
+   "jaccard": 0.084,
+   "nearest": "portable.jsonl:e-pagination"
+  },
+  {
+   "id": "authored:b050-14",
+   "cosine": 0.524,
+   "jaccard": 0.038,
+   "nearest": "portable.jsonl:e-requests-bump"
+  },
+  {
+   "id": "authored:b083-18",
+   "cosine": 0.486,
+   "jaccard": 0.179,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b071-02",
+   "cosine": 0.475,
+   "jaccard": 0.172,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b043-21",
+   "cosine": 0.472,
+   "jaccard": 0.017,
+   "nearest": "portable.jsonl:g-cloud-bill"
+  },
+  {
+   "id": "authored:b006-19",
+   "cosine": 0.464,
+   "jaccard": 0.085,
+   "nearest": "portable.jsonl:e-healthz"
+  },
+  {
+   "id": "authored:b033-09",
+   "cosine": 0.462,
+   "jaccard": 0.0,
+   "nearest": "portable.jsonl:e-healthz"
+  },
+  {
+   "id": "authored:b036-18",
+   "cosine": 0.443,
+   "jaccard": 0.192,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b057-11",
+   "cosine": 0.438,
+   "jaccard": 0.167,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b000-20",
+   "cosine": 0.436,
+   "jaccard": 0.066,
+   "nearest": "portable.jsonl:p-dns-cutover"
+  },
+  {
+   "id": "authored:b065-17",
+   "cosine": 0.414,
+   "jaccard": 0.2,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b029-05",
+   "cosine": 0.4,
+   "jaccard": 0.179,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b078-03",
+   "cosine": 0.381,
+   "jaccard": 0.0,
+   "nearest": "portable.jsonl:g-checkout-p99"
+  },
+  {
+   "id": "authored:b006-13",
+   "cosine": 0.367,
+   "jaccard": 0.032,
+   "nearest": "portable.jsonl:g-checkout-p99"
+  },
+  {
+   "id": "authored:b015-21",
+   "cosine": 0.362,
+   "jaccard": 0.0,
+   "nearest": "suite.jsonl:p-zoneinfo"
+  },
+  {
+   "id": "authored:b016-23",
+   "cosine": 0.36,
+   "jaccard": 0.0,
+   "nearest": "portable.jsonl:e-publish-sdk"
+  },
+  {
+   "id": "authored:b005-18",
+   "cosine": 0.349,
+   "jaccard": 0.0,
+   "nearest": "portable.jsonl:e-upload-limit"
+  },
+  {
+   "id": "authored:b015-18",
+   "cosine": 0.346,
+   "jaccard": 0.0,
+   "nearest": "cases.jsonl:au-json-flag"
+  },
+  {
+   "id": "authored:b056-12",
+   "cosine": 0.343,
+   "jaccard": 0.0,
+   "nearest": "cases.jsonl:au-orjson-spike"
+  },
+  {
+   "id": "authored:b065-07",
+   "cosine": 0.339,
+   "jaccard": 0.033,
+   "nearest": "portable.jsonl:e-publish-sdk"
+  },
+  {
+   "id": "authored:b029-14",
+   "cosine": 0.338,
+   "jaccard": 0.078,
+   "nearest": "portable.jsonl:e-requests-bump"
+  },
+  {
+   "id": "authored:b071-24",
+   "cosine": 0.338,
+   "jaccard": 0.0,
+   "nearest": "portable.jsonl:p-dns-cutover"
+  },
+  {
+   "id": "authored:b041-11",
+   "cosine": 0.337,
+   "jaccard": 0.172,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b021-24",
+   "cosine": 0.335,
+   "jaccard": 0.156,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b042-24",
+   "cosine": 0.334,
+   "jaccard": 0.04,
+   "nearest": "portable.jsonl:g-review-cache"
+  },
+  {
+   "id": "authored:b009-13",
+   "cosine": 0.324,
+   "jaccard": 0.065,
+   "nearest": "portable.jsonl:n-cleanup-dry-run"
+  },
+  {
+   "id": "authored:b077-21",
+   "cosine": 0.32,
+   "jaccard": 0.0,
+   "nearest": "cases.jsonl:au-json-flag"
+  },
+  {
+   "id": "authored:b036-19",
+   "cosine": 0.317,
+   "jaccard": 0.0,
+   "nearest": "portable.jsonl:g-review-prod-migration"
+  },
+  {
+   "id": "authored:b009-20",
+   "cosine": 0.313,
+   "jaccard": 0.014,
+   "nearest": "portable.jsonl:g-onboarding-docs"
+  },
+  {
+   "id": "authored:b011-07",
+   "cosine": 0.312,
+   "jaccard": 0.0,
+   "nearest": "portable.jsonl:p-readme-run"
+  },
+  {
+   "id": "authored:b024-03",
+   "cosine": 0.308,
+   "jaccard": 0.027,
+   "nearest": "cases.jsonl:au-json-flag"
+  },
+  {
+   "id": "authored:b009-15",
+   "cosine": 0.304,
+   "jaccard": 0.042,
+   "nearest": "portable.jsonl:e-prod-migration"
+  },
+  {
+   "id": "authored:b003-10",
+   "cosine": 0.303,
+   "jaccard": 0.188,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b043-12",
+   "cosine": 0.303,
+   "jaccard": 0.01,
+   "nearest": "portable.jsonl:n-k8s-upgrade"
+  },
+  {
+   "id": "authored:b012-05",
+   "cosine": 0.302,
+   "jaccard": 0.038,
+   "nearest": "portable.jsonl:g-nightly-red"
+  },
+  {
+   "id": "authored:b067-14",
+   "cosine": 0.302,
+   "jaccard": 0.036,
+   "nearest": "portable.jsonl:p-rotate-payment-keys"
+  },
+  {
+   "id": "authored:b043-22",
+   "cosine": 0.3,
+   "jaccard": 0.071,
+   "nearest": "cases.jsonl:au-json-flag"
+  },
+  {
+   "id": "authored:b035-11",
+   "cosine": 0.288,
+   "jaccard": 0.174,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b019-19",
+   "cosine": 0.282,
+   "jaccard": 0.182,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b072-14",
+   "cosine": 0.264,
+   "jaccard": 0.103,
+   "nearest": "portable.jsonl:n-cleanup-dry-run"
+  },
+  {
+   "id": "authored:b028-13",
+   "cosine": 0.263,
+   "jaccard": 0.147,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b039-21",
+   "cosine": 0.236,
+   "jaccard": 0.111,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b049-07",
+   "cosine": 0.233,
+   "jaccard": 0.106,
+   "nearest": "cases.jsonl:au-review-vague"
+  },
+  {
+   "id": "authored:b063-16",
+   "cosine": 0.188,
+   "jaccard": 0.115,
+   "nearest": "portable.jsonl:n-logging-v2"
+  },
+  {
+   "id": "authored:b041-22",
+   "cosine": 0.157,
+   "jaccard": 0.1,
+   "nearest": "portable.jsonl:p-csv-port"
+  }
+ ]
+}

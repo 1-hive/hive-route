@@ -211,3 +211,28 @@ def test_reader_qualifies_into_the_state_and_fails_when_it_lowers_tiers(tmp_path
     e = qualify_reader(t, str(suite), sources, log, caller=lambda *a: answers(**SURE_CHEAP))
     assert (e["status"], e["tier_lower"]) == ("candidate", 10)
     assert json.loads(q.read_text())["reader:kev-4b"]["status"] == "candidate"
+
+
+def test_a_reader_with_weights_qualifies_only_on_those_weights(tmp_path):
+    data = json.loads(json.dumps(BASE.data))
+    data["routes"]["kev-4b"]["weights"] = "runs/reader-ft-v1"
+    data["reader"] = {"route": "kev-4b", "mode": "shadow"}
+    t = Table.from_data(data)
+    assert t.route_pin("kev-4b") != BASE.route_pin("kev-4b")  # new weights, new pin
+    suite = tmp_path / "suite.jsonl"
+    write_suite(suite, [{"specification": "explicit", "verification": "independent",
+                         "scope": "single", "consequence": "reversible"}] * 3)
+    sources = {"format": "hive-route.sources/1", "qualifications": str(tmp_path / "q.json")}
+    log = str(tmp_path / "log.jsonl")
+    ok = lambda *a: answers(**SURE_CHEAP)  # noqa: E731
+    with pytest.raises(RouteError) as e:
+        qualify_reader(t, str(suite), sources, log, caller=ok,
+                       served=lambda route: "jaredpalmer/kev-4b@v1.0")
+    assert "serves 'jaredpalmer/kev-4b@v1.0'" in e.value.reason
+    def no_card(route):
+        raise OSError("404")
+    e = qualify_reader(t, str(suite), sources, log, caller=ok, served=no_card)
+    assert (e["status"], e["weights_checked"]) == ("qualified", False)
+    for run in ("runs/reader-ft-v1", None):  # the same run, or a card that doesn't say
+        e = qualify_reader(t, str(suite), sources, log, caller=ok, served=lambda route, run=run: run)
+        assert (e["status"], e["weights_checked"]) == ("qualified", run is not None)

@@ -69,6 +69,9 @@ Version 1, as reference points (hive-route rev 12, 2026-10-08). Each cell is fac
 |---|---|---|---|---|---|---|---|
 | Kev-4B 1.0 (`systemone`, local) | 70 | 82 | 69 | 89 | 76% | 73% | 10 / 77 / 15 |
 | Qwen3 8B (`ollama`, local) | 60 | 35 | 87 | 61 | 60% | 56% | 36 / 51 / 15 |
+| Kev-4B fine-tuned, `reader-ft-v1` (rev 16, 2026-10-14) | 98 | 98 | 96 | 101 | 96% | 94% | 0 / 99 / 3 |
+
+The fine-tuned Kev-4B was trained on [`../reader-train/`](../reader-train/README.md), which was checked for leakage against this set. Its labels follow the same `RULES.md`, from similar labellers, so it learned the labelling rules this set encodes. Compare it with a hive's own `shadow` evidence, not only with this table.
 
 Kev-4B's answers with p ≥ 0.7 are 97% right and cover 26% of answers. Kev-4B takes 0.2 s per case and Qwen 4.4 s, on an RTX 4090 laptop GPU. "Tier lower" counts cases where the estimates give a cheaper tier than the labels: the error that matters most for routing.
 
