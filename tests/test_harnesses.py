@@ -36,3 +36,16 @@ def test_no_startable_harness_in_the_tier_is_no_route_not_a_wait():
 
 def test_without_harnesses_nothing_changes():
     assert decide(LIGHT, T, state(0.1))["route_id"] == "sonnet-low"
+
+
+def test_an_override_onto_a_harness_the_runner_cant_start_is_no_route():
+    ov = {"route_id": "gpt-sol-low", "reason": "try codex", "by": "operator"}
+    d = decide({**LIGHT, "override": ov, "harnesses": ["claude-code"]}, T, state(0.1))
+    assert d["decision"] == "no_route" and d.get("route_id") is None
+    assert d["rejected"]["gpt-sol-low"] == ["RT2: harness codex not available to this attempt's runner"]
+
+
+def test_an_override_still_breaks_the_other_rules():
+    ov = {"route_id": "gpt-sol-low", "reason": "try codex", "by": "operator"}
+    assert decide({**LIGHT, "override": ov, "harnesses": ["codex"]}, T, state(0.1))["route_id"] == "gpt-sol-low"
+    assert decide({**LIGHT, "override": ov}, T, state(0.1))["route_id"] == "gpt-sol-low"

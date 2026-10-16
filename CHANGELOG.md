@@ -2,6 +2,12 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 17 — 2026-10-16
+
+- **An override can't route onto a harness the runner can't start** (ROUTING.md §4.4, RT1). When the request lists `harnesses` and an operator override names a route on another harness, the decision is `no_route` instead of that route, with the RT2 reason under `rejected`. The launch would fail anyway: in 1-hive, the launcher's review fallback is an RT1 override. An override still breaks every other rule (e.g. RT4's same-family review), and a request without `harnesses` decides as before.
+
+**Adopters:** nothing to change. A launcher that handled a launch failure after an override now sees `no_route` from the router instead.
+
 ## rev 16 — 2026-10-14
 
 - **A route may name its `weights`** (ROUTING.md §4.8). This is for a self-hosted model that keeps its name across checkpoints, such as Kev's `kev-latest`. The weights are part of the route's pin, so new weights void the qualification. `reader-qualify` refuses when the endpoint's model card (`/v1/models`) names a different `run`. Where there's no card, it qualifies on trust and records `weights_checked: false`.

@@ -5,6 +5,8 @@
 
 **Changes in rev 16:** a route may name the `weights` its endpoint serves, for a self-hosted model that keeps its name across checkpoints. They're part of the route's pin, and `reader-qualify` checks them against the endpoint's model card (§4.8). It also adds the first fine-tuned reader: Kev-4B trained on `fixtures/reader-train/`, 96% of facts right on the portable set where Kev-4B 1.0 gets 76%, and no case below the labels' tier where 1.0 had 10 (§4.8, "Learning").
 
+**Changes in rev 17:** an RT1 override onto a route whose harness the request's `harnesses` doesn't list returns `no_route` instead of that route, since the launch would fail anyway (§4.4). An override still breaks every other rule.
+
 **Changes in rev 15:** a request may list the `harnesses` its runner can start, and RT2 rules out routes on any other (§4.4). A runner missing a harness's credentials then gets another route, or waits, instead of a route it can't launch (1-hive, 2026-10-14: a worker without a Codex login was routed to Codex when the Claude pool passed its soft threshold).
 
 **Changes in rev 14:** subagents inside an attempt (§4.9). A table may list, per route, cheaper routes in the same pool and harness that a worker can hand subtasks to without ending its attempt. The decision names the eligible ones, the launcher offers them to the worker, and their models aren't drift.
@@ -180,7 +182,7 @@ It only judges scorers: nothing is logged or replayed.
 
 | # | Rule |
 |---|---|
-| RT1 | **Override first.** An operator override, recorded as an event, wins. |
+| RT1 | **Override first.** An operator override, recorded as an event, wins, except onto a harness the request's `harnesses` doesn't list, which is `no_route` (rev 17). |
 | RT2 | **Qualified and fitting only.** Eligible routes are `qualified` at their current pin; their pool is not at a limit and is allowed for the project; for metered pools, the attempt's maximum cost fits what remains of every budget; they serve the request's kind, if the route lists `kinds`; their context limit fits the request with margin (`context_margin`, default 0.8); and they support tools if tools are needed (the default); and their harness is one the request's `harnesses` lists, when it lists any (the harnesses the attempt's runner can start, e.g. those it holds credentials for). An unknown capability, an unknown price, an unknown maximum cost or unknown usage counts as not fitting. The attempt's maximum cost is the smaller of the pool's per-attempt limit and the request's `max_attempt_usd`. |
 | RT3 | **The computed tier is a floor.** Never go below it to save capacity. If every route in the tier is ruled out only by things that clear with time (a limit, a budget, an outage, a reassignment), return `wait` with the earliest known time a pool frees up (or none); the caller asks again then. If a tier in `allow_upgrade_on_wait` would wait, the next tier up is tried once. If no route in the tier could ever fit (none qualified, none fits), return `no_route`: that is a table problem for the operator, and it is never upgraded. The hive's supervisor or operator decides whether to escalate. |
 | RT4 | **Reviews use a different model family** from the author's attempt. |

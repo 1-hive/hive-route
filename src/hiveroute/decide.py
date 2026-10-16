@@ -415,6 +415,13 @@ def decide(request: dict, table: Table, state: dict, mode: str = "live") -> dict
         c = check_route(ov["route_id"], table, state, request, views)
         if not c.ok:
             out["rejected"][ov["route_id"]] = c.unfit + c.blocked
+        # An override may break any rule but one: a harness the runner can't start fails at launch (rev 17).
+        harness = table.routes[ov["route_id"]].get("harness")
+        if "harnesses" in request and harness is not None and harness not in request["harnesses"]:
+            reasons.append(_reason("RT1", f"override's harness {harness} can't be started by this "
+                                   "attempt's runner"))
+            out["decision"] = "no_route"
+            return out
         return chosen(ov["route_id"])
 
     # §5 indeterminate: never retried blindly.
