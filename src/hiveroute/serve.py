@@ -61,7 +61,7 @@ def load_agents(path: str | Path) -> dict:
     for name, a in raw["agents"].items():
         fixed = set(a.get("facts", {}))
         for key, what in (("episode_facts", "stated per episode"),
-                          ("runner_facts", "stated by the runner")):
+                          ("runner_facts", "stated by the runner"), ("text_facts", "stated by the text")):
             both = fixed & set(a.get(key, DEFAULT_EPISODE_FACTS if key == "episode_facts" else ()))
             if both:
                 raise RouteError("AGENTS_INVALID", f"{name}: {', '.join(sorted(both))} both fixed "
@@ -70,6 +70,28 @@ def load_agents(path: str | Path) -> dict:
             raise RouteError("AGENTS_INVALID", f"{name}: runner_facts and runner_token_sha256 go "
                              "together")
     return raw
+
+
+FACTS_LINE = re.compile(r"^\s*Route facts:\s*(.+)$", re.I | re.M)
+FACT_VALUES = {"specification": ("explicit", "partial", "goal_only"), "verification": ("independent", "self", "none"),
+               "scope": ("single", "few", "many"), "consequence": ("reversible", "costly", "irreversible"),
+               "leverage": ("0", "1", "2", "3")}
+
+
+def text_facts(text: str, allowed: list[str]) -> dict:
+    """The facts a `Route facts: key=value ...` line in the text states, limited to the allowed ones and to
+    known values; the first such line counts. Malformed items are ignored, never refused: the text is the
+    task's, not the caller's."""
+    m = FACTS_LINE.search(text)
+    out: dict = {}
+    if not m:
+        return out
+    for item in m.group(1).split():
+        k, _, v = item.partition("=")
+        k, v = k.strip().lower(), v.strip().strip(",").lower()
+        if k in allowed and v in FACT_VALUES.get(k, ()):
+            out[k] = int(v) if k == "leverage" else v
+    return out
 
 
 def run_decision(table: Table, request: dict, state: dict, mode: str, log: str | None,
@@ -223,6 +245,8 @@ class Service:
         text = body.get("text")
         if text is not None and not isinstance(text, str):
             raise RouteError("REQUEST_INVALID", "text must be a string")
+        if text and a.get("text_facts"):
+            stated = {**text_facts(text, a["text_facts"]), **stated}   # the agent's own statement wins
         attempt = f"{agent}.{episode}"
         with self.lock:
             episodes = self.history.episodes(agent)

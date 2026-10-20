@@ -2,6 +2,12 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 18 — 2026-10-20
+
+- **Facts from the text** (ROUTING.md §9.2): an agent entry may list `text_facts`; a `Route facts: key=value …` line in the `/route` request's `text` then states those facts for the episode (unknown values ignored, the agent's own statement wins, a fact can't be both fixed and from the text). For long-lived agents whose tasks arrive from a hive record: the order carries the facts, as 1-hive's orders already do.
+
+**Adopters:** nothing to change. To use it, move the facts the chief of staff should decide (e.g. `verification`, `consequence`) from an agent's `facts` to its `text_facts`, and have orders carry the line.
+
 ## rev 17 — 2026-10-16
 
 - **An override can't route onto a harness the runner can't start** (ROUTING.md §4.4, RT1). When the request lists `harnesses` and an operator override names a route on another harness, the decision is `no_route` instead of that route, with the RT2 reason under `rejected`. The launch would fail anyway: in 1-hive, the launcher's review fallback is an RT1 override. An override still breaks every other rule (e.g. RT4's same-family review), and a request without `harnesses` decides as before.

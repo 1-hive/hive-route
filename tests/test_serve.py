@@ -35,7 +35,9 @@ def svc(tmp_path):
         "iter-b": {"token_sha256": sha("tok-b"), "kinds": ["work"],
                    "facts": {"verification": "none", "leverage": 0},
                    "runner_token_sha256": sha("run-b"), "runner_facts": ["consequence"],
-                   "ignore_models": ["openclaw/*"]}}}))
+                   "ignore_models": ["openclaw/*"]},
+        "iter-c": {"token_sha256": sha("tok-c"), "kinds": ["work"], "facts": {"leverage": 0},
+                   "text_facts": ["verification", "consequence"]}}}))
     quals = tmp_path / "quals.json"
     quals.write_text(json.dumps(qualified(TABLE)))
     sources = {"format": "hive-route.sources/1", "qualifications": str(quals)}
@@ -155,6 +157,29 @@ def test_the_runner_states_what_the_agent_cant(svc):
     # either token ends the agent's episodes; a gateway's agent target isn't drift
     assert call(svc, "/episodes/end", {"episode": "e1", "models": ["openclaw/iter-b"]},
                 token="tok-b")[1] == {"ok": True, "drift": []}
+
+
+def test_the_text_states_facts_the_agent_cant(svc):
+    """rev 18: a `Route facts:` line in the request's text (an order from a record) states facts the agents
+    file allows as text_facts; the agent's own statement wins, and the agent still can't state them itself."""
+    order = "# Order t9\n\nFix the journal.\n\nRoute facts: verification=independent consequence=reversible scope=few leverage=3\n"
+    _, d = call(svc, "/route", {"task": "t9", "episode": "e1", "facts": EXPLICIT, "text": order}, token="tok-c")
+    used = {k: v["value"] for k, v in d["facts"].items()}
+    assert used["verification"] == "independent" and used["consequence"] == "reversible", used
+    assert used["scope"] == "few" and used["leverage"] == 0          # scope from the agent, leverage fixed
+    assert call(svc, "/route", {"task": "t9", "episode": "e4", "facts": {**EXPLICIT, "verification": "none"},
+                                "text": order}, token="tok-c")[0] == 400
+
+
+def test_text_facts_parsing():
+    from hiveroute.serve import text_facts
+    allowed = ["verification", "consequence"]
+    assert text_facts("no line here", allowed) == {}
+    assert text_facts("x\nRoute facts: verification=maybe consequence=costly, scope=few\n", allowed) == {"consequence": "costly"}
+    assert text_facts("route FACTS: Verification=Independent", allowed) == {"verification": "independent"}
+    assert text_facts("Route facts: leverage=2", ["leverage"]) == {"leverage": 2}
+    two = "Route facts: consequence=costly\nRoute facts: consequence=reversible"
+    assert text_facts(two, allowed) == {"consequence": "costly"}       # the first line counts
 
 
 def test_runner_facts_need_a_runner_token(tmp_path):
