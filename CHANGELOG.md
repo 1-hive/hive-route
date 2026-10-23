@@ -2,6 +2,14 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 19 — 2026-10-23
+
+- **`POST /episodes/failure`** (ROUTING.md §9.4): an agent with its own loop reports a failed model call and gets its class and one action (`retry`, `reroute`, `stop`, or `agent` for errors that aren't the provider's). On a routed episode, anything but a retry ends the episode with that class. The rules (`src/hiveroute/failure.py`) unify what two Iter deployments had built separately: the laptop's stop on 400/401/402/403/413 and VM2's LONG_STEP (a first timeout is a long step, retried once in parts).
+- Agents file: optional `failure_policy` per agent.
+- `examples/failure_client.py`: a standard-library client to copy into an agent.
+
+**Adopters:** nothing to change; the endpoint is new. To use it, replace an agent's own classification of provider errors with the client (ADOPTING.md §10), then remove the agent's copies of the rules.
+
 ## rev 18 — 2026-10-20
 
 - **Facts from the text** (ROUTING.md §9.2): an agent entry may list `text_facts`; a `Route facts: key=value …` line in the `/route` request's `text` then states those facts for the episode (unknown values ignored, the agent's own statement wins, a fact can't be both fixed and from the text). For long-lived agents whose tasks arrive from a hive record: the order carries the facts, as 1-hive's orders already do.

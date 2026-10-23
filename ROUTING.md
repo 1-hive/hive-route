@@ -1,9 +1,11 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-10-14 · rev 16 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
+**Status:** built · 2026-10-23 · rev 19 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
 
 **Changes in rev 16:** a route may name the `weights` its endpoint serves, for a self-hosted model that keeps its name across checkpoints. They're part of the route's pin, and `reader-qualify` checks them against the endpoint's model card (§4.8). It also adds the first fine-tuned reader: Kev-4B trained on `fixtures/reader-train/`, 96% of facts right on the portable set where Kev-4B 1.0 gets 76%, and no case below the labels' tier where 1.0 had 10 (§4.8, "Learning").
+
+**Changes in rev 19:** one owner for what happens after a failed model call (§9.4). An agent with its own loop reports the failure to `POST /episodes/failure` and gets its §5 class and one action: retry (with a wait, or in parts after a long step), reroute, or stop. The rules came from two Iter deployments that had each grown half of them: never retrying 400/401/402/403/413, and treating a first timeout as a long step rather than an outage.
 
 **Changes in rev 18:** the route service may take facts from the request's text: an agents-file entry lists `text_facts`, and a `Route facts: key=value …` line in the text (the convention of 1-hive's orders, which hive-runtime's launcher already reads) states them for the episode (§9.2). For agents whose tasks come from a record: the chief of staff states what's at stake in the order, so the hooks in the agents' own code don't change.
 
@@ -508,6 +510,30 @@ Some hives don't launch an agent per task. OpenClaw agents run continuously (cha
 - **Drift** (`hive-route openclaw-observe LOG`). Turns since the latest binding are checked against it: a provider that answered with another model than the one asked for (a dated snapshot of it is the same model) is drift on that route, which goes back to `candidate`; a model the binding didn't name at all (someone changed the config by hand) is drift too, logged against the binding's primary without demoting it.
 - **Canaries** run through `openclaw agent exec --model <ref> --json` (a harness entry in the sources file, e.g. `argv: [openclaw, agent, exec, --model, "{model}", --cwd, "{cwd}", --json, --message-file, "-"]` with `stdin: true`, `effort_args: [--thinking, "{effort}"]`); the model reported is the one in its JSON envelope.
 - **Effort** isn't set through the config (the agent's thinking level applies); a binding that names a route with an effort says so in its notes.
+### 9.4 After a failed call: `/episodes/failure` (rev 19)
+
+§8 makes the router the one owner of retries and model changes, but an agent with its own loop still had to decide, on its own, whether a failed call is worth retrying. Two Iter deployments of the same agent had each grown half of that (one never retried 400/401/402/403/413; the other retried a first timeout once, in parts, as work in progress rather than an outage), and the halves drifted apart. Now the agent reports and the service decides, for every agent, from `src/hiveroute/failure.py`.
+
+- **The report:** `POST /episodes/failure` with what the agent saw: `status`, `error` (the exception's type), `message` (an excerpt; never the prompt), `elapsed_s` (how long the call ran), `retry_after_s` (the provider's Retry-After), `retries` (what this request already retried: `transport`, `long_step`, `capacity`), and, for a call on a routed episode, `episode` and the `models` that served it so far.
+- **The answer:** `class` (§5), `action`, `reason` (short, fit to show a person), `terminal`, and `wait_s`, `hint`, `limited_until` where they apply.
+
+| Seen | Class | Action |
+|---|---|---|
+| 413, or a 400 naming the context limit | `truncated` | `stop`: the same request fails anywhere it doesn't fit |
+| 401, 403 | `outage` | `reroute` if routed, else `stop` |
+| 402, or a quota or credit message | `capacity`, with `limited_until` (Retry-After, else `down_minutes`) | `reroute` if routed, else `stop` |
+| other 400 | `outage` | `reroute` if routed, else `stop` |
+| 429 with Retry-After ≤ `capacity_wait_max_s`, first time | `capacity` | `retry` after Retry-After |
+| other 429, or a usage limit | `capacity`, with `limited_until` | `reroute` if routed, else `stop` |
+| a timeout, or a 5xx after ≥ `long_step_seconds`: a **long step**, first time | `truncated` | `retry` at once, `hint: continue_in_parts` (the agent asks the model to finish in smaller parts) |
+| any other 5xx, connection error or timeout | `outage` | `retry` after `backoff_s` × 2ⁿ while `transport_retries` allow, then `reroute` / `stop` |
+| anything else | none | `agent`: not a provider failure; the agent's own error handling |
+
+- **Routed episodes:** an answer other than `retry` ends the episode with that class (`ended: true`, with drift checked as at `/episodes/end`), so the next `/route` for the task sees it (a `capacity` with `limited_until` puts the pool at its limit, F8/RT5). Don't also call `/episodes/end` for it. Without `episode`, the service only classifies: an agent that isn't routed (yet) still gets the same rules.
+- **Policy per agent:** the agents file's `failure_policy` overrides the defaults (`transport_retries` 1, `long_step_retries` 1, `long_step_seconds` 120, `capacity_wait_max_s` 120, `backoff_s` 15, `down_minutes` 30). Like the facts, the agent can't change it.
+- **The client:** `examples/failure_client.py` (standard library only, one file to copy into the agent) builds the report from an OpenAI-style exception and counts retries. If the service can't be reached it answers locally, cautiously (one retry, then stop), marked `local`.
+- **Not here:** what the agent tells the person, and the wording of its "continue in parts" note, stay the agent's; so do errors that aren't the provider's (a concurrency cap the agent imposes on itself never reaches the service).
+
 ---
 
 ## 10. Route table example

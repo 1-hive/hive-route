@@ -24,6 +24,13 @@
           "ignore_models": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Names (glob patterns) an episode's report may contain that aren't models, e.g. a gateway's agent target (openclaw/*). Never drift."},
           "text_facts": {"type": "array", "items": {"enum": ["specification", "verification", "scope", "consequence", "leverage"]}, "uniqueItems": true, "description": "Facts the request's text may state, on a line `Route facts: key=value ...` (the convention of 1-hive's orders): for agents whose tasks come from a record whose orders carry them. A fact here can't also be fixed; the line's other keys are ignored."},
           "episode_facts": {"type": "array", "items": {"enum": ["specification", "verification", "scope", "consequence", "leverage"]}, "uniqueItems": true, "description": "Facts the agent may state per episode (default: specification and scope). A fact in both lists is an error."},
+          "failure_policy": {"type": "object", "additionalProperties": false, "description": "Overrides for what /episodes/failure answers this agent (ROUTING.md §9.4); unset keys take the defaults.", "properties": {
+            "transport_retries": {"type": "integer", "minimum": 0, "maximum": 10, "description": "Retries of the same model after a provider error (default 1)."},
+            "long_step_retries": {"type": "integer", "minimum": 0, "maximum": 10, "description": "Retries, in parts, of a step that ran long (default 1)."},
+            "long_step_seconds": {"type": "number", "minimum": 1, "description": "A server error after running this long is a long step, not an outage (default 120)."},
+            "capacity_wait_max_s": {"type": "number", "minimum": 0, "description": "A rate limit whose Retry-After is at most this is waited out once (default 120)."},
+            "backoff_s": {"type": "number", "minimum": 0, "description": "Wait before the first transport retry; doubles per retry (default 15)."},
+            "down_minutes": {"type": "number", "minimum": 1, "description": "How long a pool counts at its limit when the provider doesn't say (default 30)."}}},
           "project": {"type": "string", "minLength": 1},
           "runtime": {"type": "string", "minLength": 1, "maxLength": 64},
           "author": {"type": "object", "description": "For an agent that only reviews: the author's family and tier (RT4)."}

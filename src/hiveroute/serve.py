@@ -14,6 +14,10 @@ the route, as for launched attempts.
                             "estimate"?, "tools_needed"?, "text"?}   -> the decision
     POST /episodes/end     {"episode", "models", "class"?, "limited_until"?}
                                                             -> {"ok": true, "drift": [...]}
+    POST /episodes/failure {"episode"?, "status"?, "error"?, "message"?, "elapsed_s"?,
+                            "retry_after_s"?, "retries"?, "models"?}
+                                     -> {"class", "action", "reason", "terminal", "wait_s"?,
+                                         "hint"?, "limited_until"?, "ended", "drift"?}
     GET  /health                                                     -> table, mode
 
 Agents authenticate with a bearer token whose SHA-256 is in the agents file. Standard
@@ -38,6 +42,7 @@ from . import log as routelog
 from .canonical import UTC, format_time
 from .decide import compute_tier, decide, reading_unusable, resolve_facts
 from .errors import RouteError
+from .failure import classify
 from .observe import demote, same_model
 from .scorer import apply, read, score, scorers
 from .table import Table, schema_error
@@ -305,6 +310,54 @@ class Service:
             drift = self._drift(attempt, ep, models)
         return {"ok": True, "drift": drift}
 
+    def failure(self, agent: str, body: dict) -> dict:
+        """A failed model call (§9.4): its class and what to do next, from one set of rules for
+        every agent (failure.py), with the agent's ``failure_policy`` over the defaults. A call on a
+        routed episode that shouldn't be retried ends the episode here, with its class."""
+        unknown = set(body) - {"episode", "status", "error", "message", "elapsed_s", "retry_after_s",
+                               "retries", "models"}
+        if unknown:
+            raise RouteError("REQUEST_INVALID", f"unknown fields: {', '.join(sorted(unknown))}")
+        episode, models = body.get("episode"), body.get("models", [])
+        if episode is not None and not (isinstance(episode, str) and ID.match(episode)):
+            raise RouteError("REQUEST_INVALID", "episode must match " + ID.pattern)
+        status = body.get("status")
+        if status is not None and not (type(status) is int and 100 <= status <= 599):
+            raise RouteError("REQUEST_INVALID", "status is an HTTP status code")
+        for k, n in (("error", 200), ("message", 2000)):
+            if body.get(k) is not None and not (isinstance(body[k], str) and len(body[k]) <= n):
+                raise RouteError("REQUEST_INVALID", f"{k} is a string of at most {n} characters")
+        for k in ("elapsed_s", "retry_after_s"):
+            x = body.get(k)
+            if x is not None and not (type(x) in (int, float) and 0 <= x <= 86400):
+                raise RouteError("REQUEST_INVALID", f"{k} is a number of seconds")
+        retries = body.get("retries") or {}
+        if not (isinstance(retries, dict) and set(retries) <= {"transport", "long_step", "capacity"}
+                and all(type(x) is int and 0 <= x <= 100 for x in retries.values())):
+            raise RouteError("REQUEST_INVALID", "retries counts the agent's retries for this request: "
+                             "transport, long_step, capacity")
+        if not (isinstance(models, list) and len(models) <= 32
+                and all(isinstance(m, str) and 0 < len(m) <= 200 for m in models)):
+            raise RouteError("REQUEST_INVALID", "models: the models that served the episode's calls so far")
+        now = datetime.now(UTC)
+        policy = self.agents[agent].get("failure_policy")
+        if episode is None:
+            return {**classify(body, policy, routed=False, now=now), "ended": False}
+        attempt = f"{agent}.{episode}"
+        with self.lock:
+            ep = self.history.episodes(agent).get(attempt)
+            if ep is None:
+                raise RouteError("NOT_FOUND", f"no routed episode {episode}")
+            if ep.get("ended"):
+                raise RouteError("CONFLICT", f"episode {episode} already ended")
+            verdict = classify(body, policy, routed=True, now=now)
+            if verdict["action"] in ("retry", "agent"):
+                return {**verdict, "ended": False}
+            self.history.ended(agent, attempt, verdict["class"], verdict.get("limited_until"),
+                               sorted(set(models)))
+            drift = self._drift(attempt, ep, models)
+        return {**verdict, "ended": True, "drift": drift}
+
     def _drift(self, attempt: str, ep: dict, models: list[str]) -> list[str]:
         """Reported models that aren't the route's (§3): logged once, and the route goes back
         to candidate. A harness's own auxiliary models (the sources' ``aux_models``) and the
@@ -372,6 +425,8 @@ def handler(svc: Service) -> type[BaseHTTPRequestHandler]:
                     self._send(200, svc.route(agent, body, runner))
                 elif self.path == "/episodes/end":
                     self._send(200, svc.end(agent, body))
+                elif self.path == "/episodes/failure":
+                    self._send(200, svc.failure(agent, body))
                 else:
                     self._send(404, {"error": "NOT_FOUND"})
             except RouteError as e:
