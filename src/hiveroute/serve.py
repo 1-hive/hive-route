@@ -18,7 +18,7 @@ the route, as for launched attempts.
                             "retry_after_s"?, "retries"?, "models"?}
                                      -> {"class", "action", "reason", "terminal", "wait_s"?,
                                          "hint"?, "limited_until"?, "ended", "drift"?}
-    GET  /health                                                     -> table, mode
+    GET  /health                             -> table, mode, reader, warnings (if any)
 
 Agents authenticate with a bearer token whose SHA-256 is in the agents file. Standard
 library only; bind it to loopback or a private network.
@@ -31,7 +31,9 @@ import hashlib
 import hmac
 import json
 import re
+import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -52,6 +54,7 @@ ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 CLASSES = ("outage", "capacity", "truncated", "missing_info", "failed_check", "stalled",
            "indeterminate", "interrupted", "checkpoint")
 MAX_BODY = 256 * 1024
+READER_WARN_AFTER = 3   # failed readings in a row before /health and the journal warn
 DEFAULT_EPISODE_FACTS = ("specification", "scope")
 
 
@@ -100,33 +103,63 @@ def text_facts(text: str, allowed: list[str]) -> dict:
 
 
 def run_decision(table: Table, request: dict, state: dict, mode: str, log: str | None,
-                 text: str | None = None) -> dict:
+                 text: str | None = None, background: bool = False,
+                 on_read: Callable[[dict], None] | None = None) -> dict:
     """Score unknown facts from the task's text (if any), decide, and log: what the CLI's
-    ``decide`` and the service share."""
+    ``decide`` and the service share. With ``background``, shadow scorers and a shadow
+    reader, which never change the decision, run after it on their own thread, so the caller
+    doesn't wait for them. ``on_read`` gets each reading."""
+    later: list[Callable[[], object]] = []
     if text:
         # The table's scorer, then its shadow scorers, each on the request as it came in.
         original, live = request, None
         for scorer in scorers(table):
-            scored = score(table, original, text, scorer=scorer)
-            if not scored:
+            if background and scorer["mode"] == "shadow":
+                later.append(lambda scorer=scorer: run_scorer(table, original, state, text, log,
+                                                              scorer))
                 continue
-            # What the estimates would do to the tier, logged in either scorer mode.
-            with_est = decide(apply(original, {**scored, "mode": "live"}), table, state, "live")
-            scored["tier_with_estimates"] = with_est["computed_tier"]
-            scored["tier_without"] = decide(original, table, state, "live")["computed_tier"]
-            if live is None and scored["mode"] == "live":
+            scored = run_scorer(table, original, state, text, log, scorer)
+            if live is None and scored and scored["mode"] == "live":
                 live = scored
-            if log:
-                routelog.record_scored(log, table, scored)
         request = apply(original, live)
-        request = run_reader(table, request, state, text, log)
+        reader = table.data.get("reader")
+        if background and reader and reader["mode"] == "shadow":
+            later.append(lambda r=request: run_reader(table, r, state, text, log, on_read))
+        else:
+            request = run_reader(table, request, state, text, log, on_read)
     decision = decide(request, table, state, mode)
     if log:
         routelog.record_decision(log, table, request, state, mode, decision)
+    if later:
+        threading.Thread(target=run_later, args=(later,), daemon=True).start()
     return decision
 
 
-def run_reader(table: Table, request: dict, state: dict, text: str, log: str | None) -> dict:
+def run_later(calls: list[Callable[[], object]]) -> None:
+    for call in calls:
+        try:
+            call()
+        except Exception as e:  # a shadow model's output; the decision is already made
+            print(f"hive-route: shadow reading failed: {type(e).__name__}: {e}",
+                  file=sys.stderr, flush=True)
+
+
+def run_scorer(table: Table, request: dict, state: dict, text: str, log: str | None,
+               scorer: dict) -> dict | None:
+    """One scorer's estimates, logged with what they would do to the tier in either mode."""
+    scored = score(table, request, text, scorer=scorer)
+    if not scored:
+        return None
+    with_est = decide(apply(request, {**scored, "mode": "live"}), table, state, "live")
+    scored["tier_with_estimates"] = with_est["computed_tier"]
+    scored["tier_without"] = decide(request, table, state, "live")["computed_tier"]
+    if log:
+        routelog.record_scored(log, table, scored)
+    return scored
+
+
+def run_reader(table: Table, request: dict, state: dict, text: str, log: str | None,
+               on_read: Callable[[dict], None] | None = None) -> dict:
     """Read the facts (§4.8) and log the reading with the tier it would give. The request
     carries the reading only when the reader is live and qualified, so a shadow reading
     never changes a decision, and every decision replays from its request."""
@@ -144,6 +177,8 @@ def run_reader(table: Table, request: dict, state: dict, text: str, log: str | N
             request = with_reading
     if log:
         routelog.record_read(log, table, r)
+    if on_read:
+        on_read(r)
     return request
 
 
@@ -201,6 +236,9 @@ class Service:
         self.state_ttl, self.fixed_mode = state_ttl, mode
         self.lock = threading.Lock()
         self._state: tuple[datetime, dict] | None = None
+        self.reader = {"failures_in_a_row": 0, "last_error": None, "failing_since": None,
+                       "last_ok": None}
+        self.reader_lock = threading.Lock()   # readings arrive from shadow threads too
 
     # ------------------------------------------------------------------ helpers
     def agent_for(self, auth: str | None) -> tuple[str, bool]:
@@ -277,7 +315,7 @@ class Service:
                 request["history"] = history
             now = datetime.now(UTC)
             decision = run_decision(self.table, request, self.state(now), self.mode(),
-                                    self.log, text)
+                                    self.log, text, background=True, on_read=self.read_seen)
             if decision["decision"] == "route":
                 self.history.decided(agent, attempt, decision, "runner" if runner else "agent")
         return decision
@@ -384,8 +422,40 @@ class Service:
         self._state = None   # the next decision sees the demotion
         return bad
 
+    def read_seen(self, r: dict) -> None:
+        """Track the reader's readings, so a reader that keeps failing (an unreachable host,
+        say) shows on /health and in the journal, not only in the decision log."""
+        with self.reader_lock:
+            self._read_seen(r)
+
+    def _read_seen(self, r: dict) -> None:
+        at = format_time(datetime.now(UTC))
+        h = self.reader
+        if r["error"] is None:
+            if h["failures_in_a_row"] >= READER_WARN_AFTER:
+                print(f"hive-route: the reader recovered after {h['failures_in_a_row']} "
+                      "failed readings", file=sys.stderr, flush=True)
+            h.update(failures_in_a_row=0, last_error=None, failing_since=None, last_ok=at)
+            return
+        h["failures_in_a_row"] += 1
+        h["last_error"] = r["error"]
+        h["failing_since"] = h["failing_since"] or at
+        n = h["failures_in_a_row"]
+        if n == READER_WARN_AFTER or (n > READER_WARN_AFTER and n % 50 == 0):
+            print(f"hive-route: warning: the reader ({r['route_id']}) failed {n} readings in "
+                  f"a row since {h['failing_since']}: {r['error']}", file=sys.stderr, flush=True)
+
     def health(self) -> dict:
-        return {"ok": True, "table": self.table.pin, "mode": self.mode()}
+        out = {"ok": True, "table": self.table.pin, "mode": self.mode()}
+        reader = self.table.data.get("reader")
+        if reader:
+            out["reader"] = {"route": reader["route"], "mode": reader["mode"], **self.reader}
+            if self.reader["failures_in_a_row"] >= READER_WARN_AFTER:
+                out["warnings"] = [f"reader {reader['route']}: "
+                                   f"{self.reader['failures_in_a_row']} failed readings in a row "
+                                   f"since {self.reader['failing_since']}: "
+                                   f"{self.reader['last_error']}"]
+        return out
 
 
 STATUS = {"UNAUTHORIZED": 401, "NOT_FOUND": 404, "CONFLICT": 409}
@@ -397,11 +467,17 @@ def handler(svc: Service) -> type[BaseHTTPRequestHandler]:
 
         def _send(self, code: int, obj: dict) -> None:
             body = json.dumps(obj).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # The client gave up before the answer; nothing more to send it.
+                self.close_connection = True
+                print(f"hive-route: {self.command} {self.path}: the client left before the "
+                      "answer", file=sys.stderr, flush=True)
 
         def log_message(self, fmt: str, *args: object) -> None:  # no request logging to stderr
             pass

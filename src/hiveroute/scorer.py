@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -249,6 +250,29 @@ def read(table: Table, request: dict, text: str, caller: Caller | None = None) -
             "probabilities": probs, "error": est["error"], "seconds": est["seconds"]}
 
 
+def within(seconds: float, fn: Callable, *args: object) -> object:
+    """``fn(*args)``, or TimeoutError once ``seconds`` have passed. urllib's timeout is per
+    socket operation and per address tried, so a host with several unreachable addresses
+    takes a multiple of it; this is the limit for the whole call. A call that overruns is
+    left to finish on its own thread."""
+    out: dict = {}
+
+    def run() -> None:
+        try:
+            out["value"] = fn(*args)
+        except BaseException as e:  # handed to the caller below
+            out["error"] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        raise TimeoutError(f"no answer within {seconds:g}s")
+    if "error" in out:
+        raise out["error"]
+    return out["value"]
+
+
 def scorers(table: Table) -> list[dict]:
     """The table's scorer (in its own mode), then its shadow scorers (always shadow)."""
     out = [table.data["scorer"]] if table.data.get("scorer") else []
@@ -280,7 +304,7 @@ def estimate(table: Table, scorer: dict, kind: str, facts: list[str], text: str,
     t0 = time.monotonic()
     error = None
     try:
-        content = call(route, scorer, body)
+        content = within(scorer.get("timeout_s", 60), call, route, scorer, body)
     except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as e:
         content, error = "", f"{type(e).__name__}: {e}"
     if harness == "systemone":

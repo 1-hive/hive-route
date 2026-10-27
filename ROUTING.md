@@ -1,9 +1,11 @@
 # hive-route — a slim routing service for One Hive (R8)
 
-**Status:** built · 2026-10-23 · rev 19 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
+**Status:** built · 2026-10-27 · rev 20 (1-hive runs `live` with self-hosted, subscription and API pools; [`docs/ADOPTING.md`](docs/ADOPTING.md) is the adoption path)
 **Release:** R8 in the incremental plan: *named routes, one canary per route with a recorded lesson, detectable model switches.* It works on its own, logs to its own JSONL log until the record admits `route.` events (§9), and plugs into the worker runtime (R6) or a hive's own launcher. Any hive can adopt it, whether its models are paid per call through API keys, covered by subscriptions, run locally, or a mix.
 
 **Changes in rev 16:** a route may name the `weights` its endpoint serves, for a self-hosted model that keeps its name across checkpoints. They're part of the route's pin, and `reader-qualify` checks them against the endpoint's model card (§4.8). It also adds the first fine-tuned reader: Kev-4B trained on `fixtures/reader-train/`, 96% of facts right on the portable set where Kev-4B 1.0 gets 76%, and no case below the labels' tier where 1.0 had 10 (§4.8, "Learning").
+
+**Changes in rev 20:** from VM2, where Kev's host changed address and every reading failed for two days unseen while `/route` waited 20 s for each (§9.2). A scorer's or reader's `timeout_s` is now the limit for the whole call, not per address tried. The route service no longer waits for shadow scorers or a shadow reader: it answers, then logs their output. Repeated failed readings show on `GET /health` and in the journal. An answer to a client that has left is dropped quietly.
 
 **Changes in rev 19:** one owner for what happens after a failed model call (§9.4). An agent with its own loop reports the failure to `POST /episodes/failure` and gets its §5 class and one action: retry (with a wait, or in parts after a long step), reroute, or stop. The rules came from two Iter deployments that had each grown half of them: never retrying 400/401/402/403/413, and treating a first timeout as a long step rather than an outage.
 
@@ -265,7 +267,7 @@ reader:
   qualify: {max_tier_lower: 0.10, max_errors: 0.02}   # the defaults
   timeout_s: 10
 ```
-A reader's route must use the `systemone` harness, since the rules need probabilities. Every `tail` must be below `raise_at`.
+A reader's route must use the `systemone` harness, since the rules need probabilities. Every `tail` must be below `raise_at`. `timeout_s` (default 60, as for scorers) bounds the whole call: a reading that takes longer fails with `TimeoutError`, as if the reader were down (rev 20).
 
 **Why 0.3.** On `fixtures/scorer/portable.jsonl`, Kev-4B's readings, used as unknown facts, give these tiers (102 cases):
 
@@ -494,6 +496,8 @@ Routing per episode is where tiers pay off for an agent that runs continuously: 
 - **History is the service's, not the agent's.** It records each episode's route and how it ended, per agent, in `--state-dir`, and builds every request's `history` from it, so failure classes move tiers (F8, RT5, RT7) as they do for attempts. An episode id is routed once.
 - **Identity:** each agent has a bearer token; the agents file holds only its SHA-256. Its task ids are prefixed with its name, so agents can't touch each other's history.
 - **Drift** (§3): a reported model, the one that served each call, that isn't the route's (a dated snapshot of it is the same model; a harness's `aux_models`, the route's gateway alias and the agent's `ignore_models` aren't drift) is logged as `route.drift_detected` with `source: agent report`, and the route goes back to `candidate`. The report is the agent's own: it catches a provider quietly serving another model, not an agent that lies. Where the agent's calls also leave a record the router can read (OpenClaw session databases, a gateway's logs), that record can confirm it.
+- **Shadow models don't hold up the answer (rev 20).** Shadow scorers and a `shadow` reader never change a decision, so the service answers first and logs their `route.scored` and `route.read` when they arrive. A live scorer or reader is waited for, up to its `timeout_s`. An agent's own limit on `/route` should be above the live ones' `timeout_s`.
+- **Health (rev 20).** `GET /health` gives the table, the mode and, with a reader, its recent record: `failures_in_a_row`, `last_error`, `failing_since`, `last_ok`. From 3 failed readings in a row it adds `warnings`, and the journal gets one line then (and every 50 more) and one when readings recover. `ok` stays true: the service still routes, without the reader.
 - **Bound or served, not both.** An agent routed per episode isn't also bound (§9.3): the binding's config patches and the episode's choice would fight over its model.
 - **Recording on the hive record** works as for attempts: `hive-route record` reads the same log.
 

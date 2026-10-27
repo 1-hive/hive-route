@@ -2,6 +2,17 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 20 — 2026-10-27
+
+From VM2: Kev's host (reached through a Tailscale name) changed address, every reading failed for two days without anyone noticing, and `/route` took about 20 s per call, so the bots gave up at 15 s and ran unrouted.
+
+- **`timeout_s` is for the whole call** (scorers and the reader). urllib applies its timeout per address tried, so a name with two unreachable addresses took twice the limit.
+- **The route service doesn't wait for shadow models** (ROUTING.md §9.2): shadow scorers and a `shadow` reader run after the answer, and their `route.scored` / `route.read` lines follow the decision in the log. `decide` on the command line still waits for them.
+- **`GET /health` shows the reader:** `reader: {route, mode, failures_in_a_row, last_error, failing_since, last_ok}`, and `warnings` from 3 failed readings in a row; the journal gets a warning then and a line when readings recover.
+- An answer to a client that has already left (`BrokenPipeError`) is dropped with one journal line, instead of two tracebacks and a 500 to nobody.
+
+**Adopters:** nothing to change. A monitor can now check `/health` for `warnings`. A hive that reaches its reader through an allowlist of resolved addresses (VM2's `kev_gate`) must still refresh it when the name moves; that's deployment, not hive-route.
+
 ## rev 19 — 2026-10-23
 
 - **`POST /episodes/failure`** (ROUTING.md §9.4): an agent with its own loop reports a failed model call and gets its class and one action (`retry`, `reroute`, `stop`, or `agent` for errors that aren't the provider's). On a routed episode, anything but a retry ends the episode with that class. The rules (`src/hiveroute/failure.py`) unify what two Iter deployments had built separately: the laptop's stop on 400/401/402/403/413 and VM2's LONG_STEP (a first timeout is a long step, retried once in parts).

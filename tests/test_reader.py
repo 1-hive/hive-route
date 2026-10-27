@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import threading
+import time
 
 import pytest
 from conftest import ROOT, qualified
@@ -15,7 +18,7 @@ from hiveroute.errors import RouteError
 from hiveroute.evaluate import reader_report
 from hiveroute.log import read
 from hiveroute.scoreeval import qualify_reader
-from hiveroute.serve import run_decision
+from hiveroute.serve import READER_WARN_AFTER, Service, handler, run_decision
 from hiveroute.table import Table, load_table
 from hiveroute.usage import collect
 
@@ -183,6 +186,97 @@ def test_a_failed_reading_leaves_the_decision_as_without_it(tmp_path, monkeypatc
     [r] = [e["data"] for e in read(log) if e["type"] == "route.read"]
     assert r["probabilities"] == {} and r["error"]
     assert reader_report(log)["failed"] == 1
+
+
+# --------------------------------------------------------------------------- in the service
+def service(tmp_path, t: Table) -> Service:
+    agents = {"agents": {"cos": {"token_sha256": hashlib.sha256(b"tok").hexdigest(),
+                                 "kinds": ["work"], "facts": {"leverage": 0}}}}
+    return Service(t, agents, None, str(tmp_path / "log.jsonl"), tmp_path / "state", mode="live")
+
+
+def wait_for_read(log: str, n: int = 1, within: float = 5.0) -> list[dict]:
+    end = time.monotonic() + within
+    while time.monotonic() < end:
+        reads = [e["data"] for e in read(log) if e["type"] == "route.read"]
+        if len(reads) >= n:
+            return reads
+        time.sleep(0.02)
+    raise AssertionError(f"no {n} route.read in {within}s")
+
+
+def test_the_time_limit_is_for_the_whole_call(tmp_path, monkeypatch):
+    # As urllib does with several unreachable addresses: each within the limit, together not.
+    monkeypatch.setitem(scorer.CALLERS, "systemone", lambda *a: time.sleep(1.0) or "{}")
+    monkeypatch.setitem(scorer.CALLERS, "ollama", lambda *a: "{}")
+    t = table(timeout_s=0.2)
+    t0 = time.monotonic()
+    r = scorer.read(t, request(), "x")
+    assert time.monotonic() - t0 < 0.6
+    assert r["probabilities"] == {} and r["error"].startswith("TimeoutError")
+
+
+def test_the_service_doesnt_wait_for_a_shadow_reader(tmp_path, monkeypatch):
+    release = threading.Event()
+    monkeypatch.setitem(scorer.CALLERS, "systemone",
+                        lambda *a: release.wait(5) and answers(**SURE_CHEAP))
+    monkeypatch.setitem(scorer.CALLERS, "ollama", lambda *a: "{}")
+    svc = service(tmp_path, table("shadow"))
+    t0 = time.monotonic()
+    svc.route("cos", {"task": "t", "episode": "e1", "text": "Fix the pager."})
+    assert time.monotonic() - t0 < 1.0
+    assert not [e for e in read(svc.log) if e["type"] == "route.read"]
+    release.set()
+    [r] = wait_for_read(svc.log)
+    assert r["attempt"] == "cos.e1" and r["probabilities"]
+    assert main(["replay", svc.log]) == 0
+
+
+def test_a_live_reader_is_still_waited_for(tmp_path, monkeypatch):
+    monkeypatch.setitem(scorer.CALLERS, "systemone", lambda *a: answers(**SURE_CHEAP))
+    monkeypatch.setitem(scorer.CALLERS, "ollama", lambda *a: "{}")
+    svc = service(tmp_path, table("live"))
+    svc.route("cos", {"task": "t", "episode": "e1", "text": "Fix the pager."})
+    assert [e for e in read(svc.log) if e["type"] == "route.read"]
+
+
+def test_a_failing_reader_shows_on_health_and_clears(tmp_path, monkeypatch, capsys):
+    reply = {"text": "not json"}
+    monkeypatch.setitem(scorer.CALLERS, "systemone", lambda *a: reply["text"])
+    monkeypatch.setitem(scorer.CALLERS, "ollama", lambda *a: "{}")
+    svc = service(tmp_path, table("live"))
+    for i in range(READER_WARN_AFTER - 1):
+        svc.route("cos", {"task": "t", "episode": f"e{i}", "text": "x"})
+    h = svc.health()
+    assert h["reader"]["failures_in_a_row"] == READER_WARN_AFTER - 1 and "warnings" not in h
+    svc.route("cos", {"task": "t", "episode": "e-last", "text": "x"})
+    h = svc.health()
+    assert h["ok"] and h["reader"]["last_error"] and h["reader"]["failing_since"]
+    [w] = h["warnings"]
+    assert f"{READER_WARN_AFTER} failed readings in a row" in w
+    assert "warning: the reader (kev-4b) failed" in capsys.readouterr().err
+    reply["text"] = answers(**SURE_CHEAP)
+    svc.route("cos", {"task": "t", "episode": "ok", "text": "x"})
+    h = svc.health()
+    assert h["reader"]["failures_in_a_row"] == 0 and h["reader"]["last_ok"]
+    assert "warnings" not in h
+    assert "recovered" in capsys.readouterr().err
+
+
+def test_an_answer_to_a_client_that_left_is_dropped(tmp_path, capsys):
+    class Gone:
+        def write(self, b):
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    h = object.__new__(handler(service(tmp_path, table("shadow"))))
+    h.wfile, h.command, h.path = Gone(), "POST", "/route"
+    h.request_version, h.requestline, h.client_address = "HTTP/1.1", "POST /route HTTP/1.1", ("x", 0)
+    h._send(200, {"decision": "route"})   # no exception, so no 500 attempt and no traceback
+    assert h.close_connection
+    assert "the client left before the answer" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------- qualification
