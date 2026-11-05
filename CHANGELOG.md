@@ -2,6 +2,17 @@
 
 What changed in each revision of hive-route, and what a hive running it needs to do. Revisions follow `ROUTING.md`'s `rev`. **Adopters** says whether an existing deployment must change anything.
 
+## rev 21 — 2026-11-05
+
+From the proto-hive, where one long-lived reviewer got every review, whatever its stakes, and reviews stalled whenever it ran out of credits (ROUTING.md §9.5).
+
+- **A route may name its `actor`:** the long-lived agent that serves it. A decision for it carries `actor`; the caller assigns the work to that agent on the record instead of launching anything.
+- **Request `unavailable`:** route id → why its agent can't run now. Blocked like a pool at a limit: the rest of the tier serves, or the decision waits.
+- **Table `review_distinct: model`** (default `family`): RT4 asks only for a model other than the author's, when the request's `author` names its `model` (new, optional).
+- **`canary accept --no-canary`** for a route with an `actor`: the operator qualifies it in service, with 0 of 0 cases and suite `in-service`.
+
+**Adopters:** nothing to change. Every new field is optional, and a table without them keeps its pin.
+
 ## rev 20 — 2026-10-27
 
 From VM2: Kev's host (reached through a Tailscale name) changed address, every reading failed for two days without anyone noticing, and `/route` took about 20 s per call, so the bots gave up at 15 s and ran unrouted.

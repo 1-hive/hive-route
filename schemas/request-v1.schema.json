@@ -56,8 +56,15 @@
       "required": ["family"],
       "properties": {
         "family": {"type": "string", "minLength": 1},
-        "tier": {"enum": ["local", "light", "standard", "strong"]}
+        "tier": {"enum": ["local", "light", "standard", "strong"]},
+        "model": {"type": "string", "minLength": 1, "description": "The author's model, for a table with review_distinct: model (rev 21)"}
       }
+    },
+    "unavailable": {
+      "type": "object",
+      "description": "Routes whose long-lived agent reports it can't run now, each with why (rev 21): blocked, as at a limit, so the rest of the tier serves or the decision waits",
+      "propertyNames": {"type": "string", "minLength": 1},
+      "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 300}
     },
     "hint": {
       "type": "object",

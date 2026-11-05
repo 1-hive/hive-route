@@ -230,16 +230,41 @@ def set_lesson(route_id: str, lesson: str, sources: dict, log: str) -> dict:
     return e
 
 
-def accept(table: Table, route_id: str, by: str, reason: str, sources: dict, log: str) -> dict:
+def accept(table: Table, route_id: str, by: str, reason: str, sources: dict, log: str,
+           no_canary: bool = False) -> dict:
     """An operator accepts a candidate whose canary fell short of the suite's bar (§3).
 
     Only for the route's current pin and an existing canary result; the entry records who
-    accepted it and why. A later canary run replaces it, acceptance included."""
+    accepted it and why. A later canary run replaces it, acceptance included.
+
+    With ``no_canary`` (rev 21), a route a long-lived agent serves (``actor``) is accepted
+    without a canary result: the router can't start that agent, so the operator vouches for it
+    in service, with 0 of 0 cases. Only for the route's current pin, as above."""
     if route_id not in table.routes:
         raise RouteError("INPUT_INVALID", f"unknown route {route_id!r}")
     if not sources.get("qualifications"):
         raise RouteError("SOURCES_INVALID", "the sources file names no qualifications file")
     pin = table.route_pin(route_id)
+    if no_canary:
+        if not table.routes[route_id].get("actor"):
+            raise RouteError("INPUT_INVALID", f"{route_id!r} has no actor: run its canary, "
+                             "then accept it if it falls short")
+        at = format_time(datetime.now(UTC))
+        accepted = {"by": by, "reason": reason, "at": at, "passed": 0, "cases": 0}
+        entry = {"status": "qualified", "route_pin": pin, "suite": "in-service",
+                 "suite_pin": digest({"suite": "in-service", "route_pin": pin, **accepted}),
+                 "kinds": table.routes[route_id].get("kinds", ["review"]), "at": at,
+                 "passed": 0, "cases": 0, "stopped": None, "accepted": accepted, "results": [],
+                 "lesson": f"In service as {table.routes[route_id]['actor']}, accepted without "
+                           f"a canary by {by}: {reason}"[:2000]}
+        quals.update(sources["qualifications"], lambda q: q.__setitem__(route_id, entry))
+        with open_log(log) as w:
+            w.ensure_table(table)
+            w.append("route.canary_recorded", {"route_id": route_id, **{
+                k: entry[k] for k in ("route_pin", "status", "suite", "suite_pin", "kinds",
+                                      "passed", "cases", "lesson", "results")},
+                "accepted": accepted})
+        return entry
 
     def change(q: dict) -> dict:
         e = q.get(route_id)

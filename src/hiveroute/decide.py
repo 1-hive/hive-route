@@ -281,8 +281,16 @@ def check_route(rid: str, table: Table, state: dict, request: dict, views: dict)
     if request.get("tools_needed", True) and route.get("tools") is not True:
         c.unfit.append("RT2: tool use " + ("unsupported" if "tools" in route else "unknown"))
 
-    if kind == "review" and route["family"] == request["author"]["family"]:
-        c.unfit.append(f"RT4: same family as the author ({route['family']})")
+    if kind == "review":
+        author = request["author"]
+        if table.data.get("review_distinct") == "model" and "model" in author:
+            if route["model"] == author["model"]:
+                c.unfit.append(f"RT4: same model as the author ({route['model']})")
+        elif route["family"] == author["family"]:
+            c.unfit.append(f"RT4: same family as the author ({route['family']})")
+    why = request.get("unavailable", {}).get(rid)
+    if why is not None:   # its long-lived agent can't run now: clears with time, like a limit
+        c.blocked.append(f"RT2: {route.get('actor') or rid} can't run now: {why}")
     if last and last["route_id"] == rid:
         if last["class"] == "outage":
             c.blocked.append("RT5: outage on the previous attempt")
@@ -392,6 +400,8 @@ def decide(request: dict, table: Table, state: dict, mode: str = "live") -> dict
                    endpoint=route.get("endpoint"), effort=route.get("effort"))
         if route.get("via_gateway"):  # only when set, so earlier logged decisions replay as they were
             out["via_gateway"] = True
+        if route.get("actor"):  # rev 21: assign to this long-lived agent; only when set, as above
+            out["actor"] = route["actor"]
         subs = table.data.get("subagents", {}).get(rid)
         if subs:  # §4.9: only when the table lists some, so earlier decisions replay as they were
             out["subagents"] = []

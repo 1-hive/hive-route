@@ -331,6 +331,13 @@
       "propertyNames": {
         "$ref": "#/$defs/id"
       }
+    },
+    "review_distinct": {
+      "enum": [
+        "family",
+        "model"
+      ],
+      "description": "RT4: a review's route must differ from the author's model family (family, the default) or only from the author's model (model; rev 21)"
     }
   },
   "$defs": {
@@ -573,6 +580,11 @@
           "type": "string",
           "minLength": 1,
           "description": "The weights the endpoint serves, when `model` names the server rather than its weights (a self-hosted model that keeps its name across checkpoints, e.g. Kev's `kev-latest`). Part of the route's pin, so new weights void its qualification. For a `systemone` route, reader-qualify checks it against the `run` on the endpoint's model card (\u00a74.8)."
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A long-lived agent that serves this route (rev 21): work routed here is assigned to it on the record, never launched. A worker's route with an actor names its model for RT4 and is listed in no tier."
         }
       }
     }

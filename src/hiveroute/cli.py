@@ -111,6 +111,9 @@ def _parser() -> argparse.ArgumentParser:
     cacc.add_argument("--reason", required=True)
     cacc.add_argument("--sources", required=True)
     cacc.add_argument("--log", required=True)
+    cacc.add_argument("--no-canary", action="store_true",
+                      help="a route a long-lived agent serves (actor): accept it in service, "
+                      "without a canary result")
     cl = csub.add_parser("lesson", help="record an operator's lesson for a route")
     cl.add_argument("route")
     cl.add_argument("lesson")
@@ -305,7 +308,8 @@ def _run(args: argparse.Namespace) -> int:
     if args.cmd == "canary":
         sources = load_sources(args.sources)
         if args.canary_cmd == "accept":
-            e = accept(load_table(args.table), args.route, args.by, args.reason, sources, args.log)
+            e = accept(load_table(args.table), args.route, args.by, args.reason, sources, args.log,
+                       args.no_canary)
             print(f"{args.route}: qualified at {e['passed']}/{e['cases']}, accepted by {args.by}")
             return 0
         if args.canary_cmd == "lesson":
