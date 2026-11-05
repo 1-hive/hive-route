@@ -332,6 +332,24 @@
         "$ref": "#/$defs/id"
       }
     },
+    "review_tiers": {
+      "type": "object",
+      "description": "Routes for reviews, per tier, in order (rev 21): a tier listed here is used for kind review instead of its tiers entry, so reviews can prefer other routes than work does. Each route's tier must match.",
+      "propertyNames": {
+        "enum": [
+          "local",
+          "light",
+          "standard",
+          "strong"
+        ]
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
     "review_distinct": {
       "enum": [
         "family",

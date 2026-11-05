@@ -466,7 +466,7 @@ def decide(request: dict, table: Table, state: dict, mode: str = "live") -> dict
     waiting: list[str] = []
     for i, t in enumerate(tiers):
         eligible = []
-        for rid in table.tier_routes(t):
+        for rid in table.tier_routes(t, request["facts"]["kind"]):
             c = check_route(rid, table, state, request, views)
             if c.ok:
                 eligible.append(rid)

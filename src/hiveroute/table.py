@@ -116,7 +116,10 @@ class Table:
     def pools(self) -> dict:
         return self.data["pools"]
 
-    def tier_routes(self, tier: str) -> list[str]:
+    def tier_routes(self, tier: str, kind: str | None = None) -> list[str]:
+        """The tier's routes in order; for a review, the table's review_tiers entry if it has one (rev 21)."""
+        if kind == "review" and tier in self.data.get("review_tiers", {}):
+            return self.data["review_tiers"][tier]
         return self.data["tiers"].get(tier, [])
 
     def fact_default(self, name: str) -> object:
@@ -155,6 +158,15 @@ def _check(data: dict) -> None:
             if rid in listed:
                 raise RouteError("TABLE_INVALID", f"tiers/{tier}: route {rid!r} listed twice")
             listed.add(rid)
+    for tier, ids in data.get("review_tiers", {}).items():
+        for rid in ids:
+            if rid not in routes:
+                raise RouteError("TABLE_INVALID", f"review_tiers/{tier}: unknown route {rid!r}")
+            if routes[rid]["tier"] != tier:
+                raise RouteError("TABLE_INVALID",
+                                 f"review_tiers/{tier}: route {rid!r} has tier {routes[rid]['tier']!r}")
+        if len(ids) != len(set(ids)):
+            raise RouteError("TABLE_INVALID", f"review_tiers/{tier}: a route listed twice")
     for kind, rid in data["fixed"].items():
         if rid not in routes:
             raise RouteError("TABLE_INVALID", f"fixed/{kind}: unknown route {rid!r}")

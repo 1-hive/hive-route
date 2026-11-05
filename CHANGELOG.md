@@ -9,6 +9,7 @@ From the proto-hive, where one long-lived reviewer got every review, whatever it
 - **A route may name its `actor`:** the long-lived agent that serves it. A decision for it carries `actor`; the caller assigns the work to that agent on the record instead of launching anything.
 - **Request `unavailable`:** route id → why its agent can't run now. Blocked like a pool at a limit: the rest of the tier serves, or the decision waits.
 - **Table `review_distinct: model`** (default `family`): RT4 asks only for a model other than the author's, when the request's `author` names its `model` (new, optional).
+- **Table `review_tiers`** (optional): per tier, the order of routes for reviews, used instead of `tiers` for `kind: review`; work keeps `tiers`. Route pins don't change, so qualifications stay.
 - **`canary accept --no-canary`** for a route with an `actor`: the operator qualifies it in service, with 0 of 0 cases and suite `in-service`.
 
 **Adopters:** nothing to change. Every new field is optional, and a table without them keeps its pin.

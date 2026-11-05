@@ -124,3 +124,33 @@ def test_accept_without_a_canary_is_only_for_actor_routes(tmp_path, capsys):
     with pytest.raises(RouteError, match="has no actor"):
         from hiveroute.canary import accept
         accept(t, "plain", "andy", "x", json.loads(sp.read_text()), str(log), no_canary=True)
+
+
+def test_review_tiers_order_reviews_without_changing_work():
+    raw = json.loads(json.dumps(RAW))
+    raw["routes"]["opus-std"] = {"tier": "standard", "pool": "claude", "family": "claude",
+                                 "model": "claude-opus-5-5", "tools": True}
+    raw["routes"]["sol"] = {"tier": "standard", "pool": "openai", "family": "gpt", "model": "gpt-5.6-sol",
+                            "tools": True, "price": {"in": 0, "out": 0}}
+    raw["tiers"]["standard"] = ["opus-std", "sol"]
+    raw["kind_floor"] = {"review": "standard"}
+    base = Table.from_data(raw)
+    raw["review_tiers"] = {"standard": ["sol", "opus-std"]}
+    t = Table.from_data(raw)
+    assert all(t.route_pin(r) == base.route_pin(r) for r in t.routes)
+    rev = review(author={"family": "qwen"}, hint=None)
+    del rev["hint"]
+    rev["facts"]["consequence"] = "reversible"
+    assert decide(rev, t, state(t))["route_id"] == "sol"
+    assert decide(rev, base, state(base))["route_id"] == "opus-std"
+    work = {"task": "t", "attempt": "t.w.0", "max_attempt_usd": 1,
+            "facts": {**rev["facts"], "kind": "work", "scope": "many"}}
+    assert decide(work, t, state(t))["route_id"] == "opus-std"
+    assert decide({**rev, "unavailable": {"sol": "out"}}, t, state(t))["route_id"] == "opus-std"
+
+
+def test_review_tiers_are_checked():
+    raw = json.loads(json.dumps(RAW))
+    raw["review_tiers"] = {"standard": ["astra"]}
+    with pytest.raises(RouteError, match="has tier"):
+        Table.from_data(raw)
